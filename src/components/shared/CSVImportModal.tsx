@@ -280,7 +280,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
               );
             }
 
-            if (status === "Active" && activeWebhooks.length > 0) {
+            if (status === "Active" && webhooks.length > 0) {
               const webhookPayload = {
                 event: "deal.posted",
                 policy_number: r.policy_number || "",
@@ -292,7 +292,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
                 application_date: r.application_date || "",
                 status,
               };
-              for (const config of activeWebhooks) {
+              for (const config of webhooks) {
                 try {
                   await supabase.functions.invoke("fire-webhook", {
                     body: { webhook_url: config.webhook_url, payload: webhookPayload },
