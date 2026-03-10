@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Upload, AlertCircle, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents } from "@/hooks/useAgents";
 import { useCommissionLevels, lookupCommissionRate } from "@/hooks/useCommissionLevels";
-import { parseCSV, autoMapFields, cleanCurrency, normalizeStatus, levenshtein, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
+import { parseCSV, autoMapFields, cleanCurrency, normalizeStatus, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
 import { toast } from "sonner";
 
 interface CSVImportModalProps {
@@ -26,6 +26,12 @@ const AGENT_FIELDS = ["first_name", "last_name", "email", "npn", "position", "up
 const COMMISSION_FIELDS = ["carrier", "product", "position", "rate", "start_date"];
 const POLICY_FIELDS = ["policy_number", "application_date", "writing_agent_id", "client_name", "carrier", "product", "annual_premium", "status", "contract_type"];
 
+interface UnresolvedRow {
+  row: number;
+  writing_agent_id: string;
+  carrier: string;
+}
+
 export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModalProps) {
   const [tab, setTab] = useState(defaultTab || "agents");
   const [step, setStep] = useState<Step>("upload");
@@ -34,6 +40,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
   const [fieldMapping, setFieldMapping] = useState<Record<string, string>>({});
   const [validRows, setValidRows] = useState<Record<string, string>[]>([]);
   const [errorRows, setErrorRows] = useState<{ row: number; reason: string }[]>([]);
+  const [unresolvedRows, setUnresolvedRows] = useState<UnresolvedRow[]>([]);
   const [importProgress, setImportProgress] = useState(0);
   const [importedCount, setImportedCount] = useState(0);
 
@@ -51,6 +58,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     setFieldMapping({});
     setValidRows([]);
     setErrorRows([]);
+    setUnresolvedRows([]);
     setImportProgress(0);
     setImportedCount(0);
   };
@@ -75,11 +83,13 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     if (file) handleFile(file);
   }, [handleFile]);
 
-  const handleValidate = () => {
+  const handleValidate = async () => {
     const required = systemFields;
-    const mappedFields = Object.keys(fieldMapping);
     const errors: { row: number; reason: string }[] = [];
     const valid: Record<string, string>[] = [];
+    const unresolved: UnresolvedRow[] = [];
+
+    const records: { record: Record<string, string>; idx: number }[] = [];
 
     csvRows.forEach((row, idx) => {
       const record: Record<string, string> = {};
@@ -98,7 +108,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
         record[field] = colIdx >= 0 ? (row[colIdx] || "").trim() : "";
       }
       if (!hasError) {
-        // Check required values
         if (tab === "agents" && (!record.first_name || !record.last_name || !record.email)) {
           errors.push({ row: idx + 2, reason: "Missing required field (name or email)" });
         } else if (tab === "commissions" && (!record.carrier || !record.product || !record.rate)) {
@@ -106,13 +115,51 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
         } else if (tab === "policies" && (!record.policy_number || !record.client_name)) {
           errors.push({ row: idx + 2, reason: "Missing policy_number or client_name" });
         } else {
-          valid.push(record);
+          records.push({ record, idx });
         }
       }
     });
 
+    // For policies, resolve writing_agent_id via alias → NPN fallback
+    if (tab === "policies") {
+      for (const { record, idx } of records) {
+        if (record.writing_agent_id && record.carrier) {
+          // 1. Check carrier_agent_aliases
+          const { data: alias } = await supabase
+            .from("carrier_agent_aliases" as any)
+            .select("agent_id")
+            .eq("carrier", record.carrier)
+            .eq("writing_agent_id", record.writing_agent_id)
+            .maybeSingle();
+
+          if (alias) {
+            record._resolved_agent_id = (alias as any).agent_id;
+          } else {
+            // 2. Fallback to NPN
+            const npnMatch = agents?.find((a) => a.npn === record.writing_agent_id);
+            if (npnMatch) {
+              record._resolved_agent_id = npnMatch.id;
+            } else {
+              // 3. Unresolved
+              unresolved.push({
+                row: idx + 2,
+                writing_agent_id: record.writing_agent_id,
+                carrier: record.carrier,
+              });
+            }
+          }
+        }
+        valid.push(record);
+      }
+    } else {
+      for (const { record } of records) {
+        valid.push(record);
+      }
+    }
+
     setValidRows(valid);
     setErrorRows(errors);
+    setUnresolvedRows(unresolved);
     setStep("validate");
   };
 
@@ -159,12 +206,26 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
       } else if (tab === "policies") {
         for (let i = 0; i < validRows.length; i++) {
           const r = validRows[i];
-          // NPN resolution
-          let resolvedAgentId: string | null = null;
-          if (r.writing_agent_id && agents) {
-            const match = agents.find((a) => a.npn === r.writing_agent_id);
-            if (match) resolvedAgentId = match.id;
+
+          // Use pre-resolved agent ID from validation, or resolve again
+          let resolvedAgentId: string | null = r._resolved_agent_id || null;
+
+          if (!resolvedAgentId && r.writing_agent_id && r.carrier) {
+            const { data: alias } = await supabase
+              .from("carrier_agent_aliases" as any)
+              .select("agent_id")
+              .eq("carrier", r.carrier)
+              .eq("writing_agent_id", r.writing_agent_id)
+              .maybeSingle();
+
+            if (alias) {
+              resolvedAgentId = (alias as any).agent_id;
+            } else if (agents) {
+              const match = agents.find((a) => a.npn === r.writing_agent_id);
+              if (match) resolvedAgentId = match.id;
+            }
           }
+
           const premium = cleanCurrency(r.annual_premium || "0");
           const status = normalizeStatus(r.status || "Submitted");
 
@@ -190,7 +251,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
             .single();
 
           if (!error && policy && resolvedAgentId && commissionLevels) {
-            // Calculate commission
             const agent = agents?.find((a) => a.id === resolvedAgentId);
             const rate = lookupCommissionRate(
               commissionLevels,
@@ -211,7 +271,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
               );
             }
 
-            // Webhook trigger for Active policies
             if (status === "Active") {
               try {
                 const { data: webhookConfig } = await supabase
@@ -359,11 +418,17 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
             {step === "validate" && (
               <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex gap-4 flex-wrap">
                   <div className="flex items-center gap-2 text-success">
                     <CheckCircle2 className="h-4 w-4" />
                     <span className="text-sm">{validRows.length} rows ready</span>
                   </div>
+                  {unresolvedRows.length > 0 && (
+                    <div className="flex items-center gap-2 text-amber-500">
+                      <AlertTriangle className="h-4 w-4" />
+                      <span className="text-sm">{unresolvedRows.length} unresolved agent{unresolvedRows.length !== 1 ? "s" : ""}</span>
+                    </div>
+                  )}
                   {errorRows.length > 0 && (
                     <div className="flex items-center gap-2 text-destructive">
                       <AlertCircle className="h-4 w-4" />
@@ -371,6 +436,23 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
                     </div>
                   )}
                 </div>
+
+                {unresolvedRows.length > 0 && (
+                  <div className="max-h-40 overflow-y-auto border border-amber-300 dark:border-amber-700 rounded p-2 text-xs space-y-1 bg-amber-50 dark:bg-amber-950/30">
+                    <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">
+                      These rows will import without a resolved agent (no alias or NPN match):
+                    </p>
+                    {unresolvedRows.slice(0, 20).map((u, i) => (
+                      <p key={i} className="text-amber-600 dark:text-amber-400">
+                        Row {u.row}: writing_agent_id "{u.writing_agent_id}" / carrier "{u.carrier}" — no matching agent found
+                      </p>
+                    ))}
+                    {unresolvedRows.length > 20 && (
+                      <p className="text-muted-foreground">...and {unresolvedRows.length - 20} more</p>
+                    )}
+                  </div>
+                )}
+
                 {errorRows.length > 0 && (
                   <div className="max-h-40 overflow-y-auto border border-border rounded p-2 text-xs space-y-1">
                     {errorRows.slice(0, 20).map((e, i) => (
