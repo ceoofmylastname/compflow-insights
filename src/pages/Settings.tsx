@@ -41,12 +41,7 @@ const Settings = () => {
     setProfileLoaded(true);
   }
 
-  // Agency state
-  const [agencyName, setAgencyName] = useState("");
-  const [agencyLoaded, setAgencyLoaded] = useState(false);
-  const { data: tenant } = useWebhookConfigs() ? undefined! : undefined!; // placeholder removed
-  // Re-fetch tenant separately
-  const tenantQuery = useQueryClient();
+  // Danger zone
 
   // Danger zone
   const [deleteConfirm, setDeleteConfirm] = useState("");
