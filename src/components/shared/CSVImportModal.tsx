@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Upload, AlertCircle, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
@@ -13,6 +13,8 @@ import { useAgents } from "@/hooks/useAgents";
 import { parseCSV, autoMapFields, cleanCurrency, normalizeStatus, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
 import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { addDays, isValid, parseISO } from "date-fns";
 
 interface CSVImportModalProps {
   open: boolean;
@@ -32,6 +34,12 @@ interface UnresolvedRow {
   carrier: string;
 }
 
+interface SkippedRow {
+  row: number;
+  reason: string;
+  record: Record<string, string>;
+}
+
 export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModalProps) {
   const [tab, setTab] = useState(defaultTab || "agents");
   const [step, setStep] = useState<Step>("upload");
@@ -41,6 +49,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
   const [validRows, setValidRows] = useState<Record<string, string>[]>([]);
   const [errorRows, setErrorRows] = useState<{ row: number; reason: string }[]>([]);
   const [unresolvedRows, setUnresolvedRows] = useState<UnresolvedRow[]>([]);
+  const [skippedRows, setSkippedRows] = useState<SkippedRow[]>([]);
   const [importProgress, setImportProgress] = useState(0);
   const [importedCount, setImportedCount] = useState(0);
 
@@ -59,6 +68,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     setValidRows([]);
     setErrorRows([]);
     setUnresolvedRows([]);
+    setSkippedRows([]);
     setImportProgress(0);
     setImportedCount(0);
   };
@@ -88,8 +98,10 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     const errors: { row: number; reason: string }[] = [];
     const valid: Record<string, string>[] = [];
     const unresolved: UnresolvedRow[] = [];
+    const skipped: SkippedRow[] = [];
 
     const records: { record: Record<string, string>; idx: number }[] = [];
+    const maxFutureDate = addDays(new Date(), 90);
 
     csvRows.forEach((row, idx) => {
       const record: Record<string, string> = {};
@@ -112,8 +124,37 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
           errors.push({ row: idx + 2, reason: "Missing required field (name or email)" });
         } else if (tab === "commissions" && (!record.carrier || !record.product || !record.rate)) {
           errors.push({ row: idx + 2, reason: "Missing required field" });
-        } else if (tab === "policies" && (!record.policy_number || !record.client_name)) {
-          errors.push({ row: idx + 2, reason: "Missing policy_number or client_name" });
+        } else if (tab === "policies") {
+          // Enhanced policy validation
+          if (!record.policy_number) {
+            errors.push({ row: idx + 2, reason: "policy_number is empty" });
+          } else if (!record.carrier) {
+            errors.push({ row: idx + 2, reason: "carrier is empty" });
+          } else if (!record.product) {
+            errors.push({ row: idx + 2, reason: "product is empty" });
+          } else if (!record.client_name) {
+            errors.push({ row: idx + 2, reason: "client_name is empty" });
+          } else {
+            // Validate application_date
+            if (record.application_date) {
+              const d = parseISO(record.application_date);
+              if (!isValid(d)) {
+                errors.push({ row: idx + 2, reason: "application_date is not a valid date" });
+                return;
+              }
+              if (d > maxFutureDate) {
+                errors.push({ row: idx + 2, reason: "application_date is more than 90 days in the future" });
+                return;
+              }
+            }
+            // Validate annual_premium
+            const prem = cleanCurrency(record.annual_premium || "0");
+            if (prem <= 0) {
+              errors.push({ row: idx + 2, reason: "annual_premium must be a positive number > 0" });
+              return;
+            }
+            records.push({ record, idx });
+          }
         } else {
           records.push({ record, idx });
         }
@@ -124,7 +165,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     if (tab === "policies") {
       for (const { record, idx } of records) {
         if (record.writing_agent_id && record.carrier) {
-          // 1. Check carrier_agent_aliases
           const { data: alias } = await supabase
             .from("carrier_agent_aliases" as any)
             .select("agent_id")
@@ -135,17 +175,22 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
           if (alias) {
             record._resolved_agent_id = (alias as any).agent_id;
           } else {
-            // 2. Fallback to NPN
             const npnMatch = agents?.find((a) => a.npn === record.writing_agent_id);
             if (npnMatch) {
               record._resolved_agent_id = npnMatch.id;
             } else {
-              // 3. Unresolved
+              // Skip unresolved rows
               unresolved.push({
                 row: idx + 2,
                 writing_agent_id: record.writing_agent_id,
                 carrier: record.carrier,
               });
+              skipped.push({
+                row: idx + 2,
+                reason: `Unresolved agent: writing_agent_id "${record.writing_agent_id}" / carrier "${record.carrier}"`,
+                record,
+              });
+              continue; // Don't add to valid
             }
           }
         }
@@ -160,6 +205,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     setValidRows(valid);
     setErrorRows(errors);
     setUnresolvedRows(unresolved);
+    setSkippedRows(skipped);
     setStep("validate");
   };
 
@@ -204,7 +250,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
         if (!error) imported = records.length;
         setImportProgress(100);
       } else if (tab === "policies") {
-        // Fetch all active deal.posted webhooks upfront
         const { data: activeWebhooks } = await supabase
           .from("webhook_configs")
           .select("*")
@@ -215,8 +260,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
         for (let i = 0; i < validRows.length; i++) {
           const r = validRows[i];
-
-          // Use pre-resolved agent ID from validation, or resolve again
           let resolvedAgentId: string | null = r._resolved_agent_id || null;
 
           if (!resolvedAgentId && r.writing_agent_id && r.carrier) {
@@ -260,7 +303,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
             .single();
 
           if (!error && policy) {
-            // Calculate commission payouts using engine
             try {
               await calculateAndSavePayouts(policy.id, supabase);
             } catch {}
@@ -296,7 +338,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
       setImportedCount(imported);
       setStep("done");
       queryClient.invalidateQueries();
-      toast.success(`Import complete — ${imported} rows imported, ${errorRows.length} skipped`);
+      toast.success(`Import complete — ${imported} rows imported, ${skippedRows.length + errorRows.length} skipped`);
     } catch (err: any) {
       toast.error(`Import failed: ${err.message}`);
       setStep("validate");
@@ -305,7 +347,10 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
   const handleDownloadErrors = () => {
     const headers = ["Row", "Reason"];
-    const rows = errorRows.map((e) => [String(e.row), e.reason]);
+    const rows = [
+      ...errorRows.map((e) => [String(e.row), e.reason]),
+      ...skippedRows.map((s) => [String(s.row), s.reason]),
+    ];
     downloadCSV("import-errors.csv", rowsToCSV(headers, rows));
   };
 
@@ -408,54 +453,100 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
             {step === "validate" && (
               <div className="space-y-4">
                 <div className="flex gap-4 flex-wrap">
-                  <div className="flex items-center gap-2 text-success">
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="h-4 w-4" />
-                    <span className="text-sm">{validRows.length} rows ready</span>
+                    <span className="text-sm font-medium">{validRows.length} rows ready</span>
                   </div>
-                  {unresolvedRows.length > 0 && (
-                    <div className="flex items-center gap-2 text-amber-500">
+                  {skippedRows.length > 0 && (
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                       <AlertTriangle className="h-4 w-4" />
-                      <span className="text-sm">{unresolvedRows.length} unresolved agent{unresolvedRows.length !== 1 ? "s" : ""}</span>
+                      <span className="text-sm font-medium">{skippedRows.length} skipped (unresolved agent)</span>
                     </div>
                   )}
                   {errorRows.length > 0 && (
                     <div className="flex items-center gap-2 text-destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <span className="text-sm">{errorRows.length} rows have errors</span>
+                      <XCircle className="h-4 w-4" />
+                      <span className="text-sm font-medium">{errorRows.length} validation errors</span>
                     </div>
                   )}
                 </div>
 
-                {unresolvedRows.length > 0 && (
-                  <div className="max-h-40 overflow-y-auto border border-amber-300 dark:border-amber-700 rounded p-2 text-xs space-y-1 bg-amber-50 dark:bg-amber-950/30">
-                    <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">
-                      These rows will import without a resolved agent (no alias or NPN match):
-                    </p>
-                    {unresolvedRows.slice(0, 20).map((u, i) => (
-                      <p key={i} className="text-amber-600 dark:text-amber-400">
-                        Row {u.row}: writing_agent_id "{u.writing_agent_id}" / carrier "{u.carrier}" — no matching agent found
-                      </p>
-                    ))}
-                    {unresolvedRows.length > 20 && (
-                      <p className="text-muted-foreground">...and {unresolvedRows.length - 20} more</p>
-                    )}
+                {/* Preview table for policies with row status */}
+                {tab === "policies" && (validRows.length > 0 || skippedRows.length > 0 || errorRows.length > 0) && (
+                  <div className="max-h-60 overflow-y-auto rounded border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-16">Row</TableHead>
+                          <TableHead className="w-24">Status</TableHead>
+                          <TableHead>Policy #</TableHead>
+                          <TableHead>Client</TableHead>
+                          <TableHead>Carrier</TableHead>
+                          <TableHead>Reason</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {validRows.slice(0, 10).map((r, i) => (
+                          <TableRow key={`v-${i}`}>
+                            <TableCell className="text-xs">—</TableCell>
+                            <TableCell><Badge variant="default" className="text-xs bg-emerald-600">Valid</Badge></TableCell>
+                            <TableCell className="text-xs">{r.policy_number}</TableCell>
+                            <TableCell className="text-xs">{r.client_name}</TableCell>
+                            <TableCell className="text-xs">{r.carrier}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                          </TableRow>
+                        ))}
+                        {validRows.length > 10 && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-xs text-muted-foreground text-center">
+                              ...and {validRows.length - 10} more valid rows
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {skippedRows.map((s, i) => (
+                          <TableRow key={`s-${i}`} className="bg-amber-50 dark:bg-amber-950/20">
+                            <TableCell className="text-xs">{s.row}</TableCell>
+                            <TableCell><Badge variant="outline" className="text-xs border-amber-500 text-amber-700 dark:text-amber-400">Skipped</Badge></TableCell>
+                            <TableCell className="text-xs">{s.record.policy_number}</TableCell>
+                            <TableCell className="text-xs">{s.record.client_name}</TableCell>
+                            <TableCell className="text-xs">{s.record.carrier}</TableCell>
+                            <TableCell className="text-xs text-amber-700 dark:text-amber-400">{s.reason}</TableCell>
+                          </TableRow>
+                        ))}
+                        {errorRows.slice(0, 5).map((e, i) => (
+                          <TableRow key={`e-${i}`} className="bg-destructive/5">
+                            <TableCell className="text-xs">{e.row}</TableCell>
+                            <TableCell><Badge variant="destructive" className="text-xs">Error</Badge></TableCell>
+                            <TableCell colSpan={3} className="text-xs">—</TableCell>
+                            <TableCell className="text-xs text-destructive">{e.reason}</TableCell>
+                          </TableRow>
+                        ))}
+                        {errorRows.length > 5 && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-xs text-muted-foreground text-center">
+                              ...and {errorRows.length - 5} more errors
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
 
-                {errorRows.length > 0 && (
+                {/* Non-policy tabs: simple error list */}
+                {tab !== "policies" && errorRows.length > 0 && (
                   <div className="max-h-40 overflow-y-auto border border-border rounded p-2 text-xs space-y-1">
                     {errorRows.slice(0, 20).map((e, i) => (
-                      <p key={i} className="text-destructive">
-                        Row {e.row}: {e.reason}
-                      </p>
+                      <p key={i} className="text-destructive">Row {e.row}: {e.reason}</p>
                     ))}
                     {errorRows.length > 20 && (
                       <p className="text-muted-foreground">...and {errorRows.length - 20} more</p>
                     )}
                   </div>
                 )}
+
                 <div className="flex gap-2">
-                  {errorRows.length > 0 && (
+                  {(errorRows.length > 0 || skippedRows.length > 0) && (
                     <Button variant="outline" size="sm" onClick={handleDownloadErrors}>
                       Download Error Report
                     </Button>
@@ -476,11 +567,34 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
             {step === "done" && (
               <div className="space-y-4 py-8 text-center">
-                <CheckCircle2 className="mx-auto h-12 w-12 text-success" />
+                <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
                 <p className="text-lg font-semibold text-foreground">Import Complete</p>
-                <p className="text-sm text-muted-foreground">
-                  {importedCount} rows imported, {errorRows.length} skipped
-                </p>
+                <div className="space-y-1">
+                  <p className="text-sm text-foreground">
+                    <span className="font-semibold text-emerald-600">{importedCount}</span> rows imported
+                  </p>
+                  {skippedRows.length > 0 && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      {skippedRows.length} rows skipped (unresolved agent)
+                    </p>
+                  )}
+                  {errorRows.length > 0 && (
+                    <p className="text-sm text-destructive">
+                      {errorRows.length} rows with validation errors
+                    </p>
+                  )}
+                </div>
+                {skippedRows.length > 0 && (
+                  <div className="text-left max-h-32 overflow-y-auto border border-amber-300 dark:border-amber-700 rounded p-2 text-xs bg-amber-50 dark:bg-amber-950/30">
+                    <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">Skipped rows:</p>
+                    {skippedRows.slice(0, 5).map((s, i) => (
+                      <p key={i} className="text-amber-600 dark:text-amber-400">Row {s.row}: {s.reason}</p>
+                    ))}
+                    {skippedRows.length > 5 && (
+                      <p className="text-muted-foreground">...and {skippedRows.length - 5} more</p>
+                    )}
+                  </div>
+                )}
                 <Button onClick={() => { reset(); onOpenChange(false); }}>Close</Button>
               </div>
             )}

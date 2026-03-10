@@ -15,7 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, UserPlus } from "lucide-react";
+import { MoreHorizontal, UserPlus, Copy } from "lucide-react";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,12 +29,15 @@ const AgentRoster = () => {
   const [contractTypeFilter, setContractTypeFilter] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [profileAgent, setProfileAgent] = useState<Agent | null>(null);
+  const [editingGoal, setEditingGoal] = useState<{ id: string; value: string } | null>(null);
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
   const { data: policies } = usePolicies({ status: ["Active"] });
   const { data: payouts } = useCommissionPayouts({ dateFrom: `${new Date().getFullYear()}-01-01T00:00:00Z` });
   const queryClient = useQueryClient();
+
+  const isOwner = currentAgent?.is_owner ?? false;
 
   const downline = useMemo(() => {
     if (!agents || !currentAgent) return [];
@@ -72,6 +75,45 @@ const AgentRoster = () => {
     return { activePrem, commYTD, directReports };
   };
 
+  const handleGoalSave = async (agentId: string, value: string) => {
+    const num = parseFloat(value);
+    if (isNaN(num) || num < 0) {
+      toast.error("Invalid goal amount");
+      setEditingGoal(null);
+      return;
+    }
+    const { error } = await supabase
+      .from("agents")
+      .update({ annual_goal: num })
+      .eq("id", agentId);
+    if (error) {
+      toast.error("Failed to update goal");
+    } else {
+      toast.success("Annual goal updated");
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+    }
+    setEditingGoal(null);
+  };
+
+  const handleCopyInviteLink = async (agent: Agent) => {
+    if (!currentAgent) return;
+    const token = crypto.randomUUID();
+    const { error } = await supabase.from("invites").insert({
+      tenant_id: currentAgent.tenant_id,
+      invited_by_agent_id: currentAgent.id,
+      invitee_email: agent.email,
+      invitee_upline_email: agent.upline_email || currentAgent.email,
+      token,
+    });
+    if (error) {
+      toast.error("Failed to create invite link");
+      return;
+    }
+    const url = `${window.location.origin}/signup?token=${token}`;
+    await navigator.clipboard.writeText(url);
+    toast.success("Invite link copied to clipboard");
+  };
+
   const columns: Column<Agent>[] = [
     { key: "name", label: "Full Name", render: (r) => `${r.first_name} ${r.last_name}` },
     { key: "email", label: "Email" },
@@ -80,7 +122,39 @@ const AgentRoster = () => {
     { key: "upline_email", label: "Upline", render: (r) => getUplineName(r.upline_email) },
     { key: "contract_type", label: "Contract Type" },
     { key: "start_date", label: "Start Date", render: (r) => formatDate(r.start_date) },
-    { key: "annual_goal", label: "Annual Goal", render: (r) => formatCurrency(Number(r.annual_goal)) },
+    {
+      key: "annual_goal",
+      label: "Annual Goal",
+      render: (r) => {
+        if (isOwner && editingGoal?.id === r.id) {
+          return (
+            <Input
+              autoFocus
+              className="h-7 w-28 text-xs"
+              defaultValue={editingGoal.value}
+              onBlur={(e) => handleGoalSave(r.id, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleGoalSave(r.id, (e.target as HTMLInputElement).value);
+                if (e.key === "Escape") setEditingGoal(null);
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          );
+        }
+        return (
+          <span
+            className={isOwner ? "cursor-pointer hover:underline" : ""}
+            onClick={(e) => {
+              if (!isOwner) return;
+              e.stopPropagation();
+              setEditingGoal({ id: r.id, value: String(r.annual_goal || 0) });
+            }}
+          >
+            {formatCurrency(Number(r.annual_goal))}
+          </span>
+        );
+      },
+    },
     {
       key: "actions",
       label: "",
@@ -94,17 +168,21 @@ const AgentRoster = () => {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => setProfileAgent(r)}>View Profile</DropdownMenuItem>
-            {currentAgent?.is_owner && (
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={async () => {
-                  if (!confirm(`Remove ${r.first_name} ${r.last_name}?`)) return;
-                  // Note: DELETE not allowed by RLS, would need migration
-                  toast.error("Remove not available — contact support");
-                }}
-              >
-                Remove
-              </DropdownMenuItem>
+            {isOwner && (
+              <>
+                <DropdownMenuItem onClick={() => handleCopyInviteLink(r)}>
+                  <Copy className="mr-2 h-3.5 w-3.5" /> Copy Invite Link
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={async () => {
+                    if (!confirm(`Remove ${r.first_name} ${r.last_name}?`)) return;
+                    toast.error("Remove not available — contact support");
+                  }}
+                >
+                  Remove
+                </DropdownMenuItem>
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -121,13 +199,9 @@ const AgentRoster = () => {
 
   const renderOrgNode = (agent: Agent & { children: any[] }, depth: number = 0) => {
     const initials = `${agent.first_name[0]}${agent.last_name[0]}`.toUpperCase();
-    const stats = getAgentStats(agent.id);
     return (
       <div key={agent.id} className="flex flex-col items-center">
-        <div
-          className="flex flex-col items-center cursor-pointer"
-          onClick={() => setProfileAgent(agent)}
-        >
+        <div className="flex flex-col items-center cursor-pointer" onClick={() => setProfileAgent(agent)}>
           <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
             {initials}
           </div>
