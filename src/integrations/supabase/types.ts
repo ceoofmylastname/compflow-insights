@@ -358,6 +358,7 @@ export type Database = {
       webhook_configs: {
         Row: {
           created_at: string
+          event_type: string
           id: string
           is_active: boolean
           tenant_id: string
@@ -365,6 +366,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          event_type?: string
           id?: string
           is_active?: boolean
           tenant_id: string
@@ -372,6 +374,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          event_type?: string
           id?: string
           is_active?: boolean
           tenant_id?: string

@@ -204,6 +204,15 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
         if (!error) imported = records.length;
         setImportProgress(100);
       } else if (tab === "policies") {
+        // Fetch all active deal.posted webhooks upfront
+        const { data: activeWebhooks } = await supabase
+          .from("webhook_configs")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .eq("event_type", "deal.posted" as any);
+        const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string }>;
+
         for (let i = 0; i < validRows.length; i++) {
           const r = validRows[i];
 
@@ -271,32 +280,25 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
               );
             }
 
-            if (status === "Active") {
-              try {
-                const { data: webhookConfig } = await supabase
-                  .from("webhook_configs")
-                  .select("*")
-                  .eq("tenant_id", tenantId)
-                  .eq("is_active", true)
-                  .maybeSingle();
-                if (webhookConfig) {
-                  const payload = {
-                    event: "deal_posted",
-                    content: `🔥 Deal Posted! ${agent?.first_name} ${agent?.last_name} just closed a ${r.carrier} — ${r.product} policy. $${premium.toFixed(2)} annual premium. Commission: $${rate ? (premium * rate).toFixed(2) : "N/A"}`,
-                    agent_name: `${agent?.first_name} ${agent?.last_name}`,
-                    position: agent?.position,
-                    carrier: r.carrier,
-                    product: r.product,
-                    annual_premium: premium,
-                    commission_amount: rate ? premium * rate : null,
-                    application_date: r.application_date,
-                    posted_at: new Date().toISOString(),
-                  };
+            if (status === "Active" && webhooks.length > 0) {
+              const webhookPayload = {
+                event: "deal.posted",
+                policy_number: r.policy_number || "",
+                client_name: r.client_name || "",
+                carrier: r.carrier || "",
+                product: r.product || "",
+                annual_premium: premium,
+                agent_email: agent?.email || "",
+                application_date: r.application_date || "",
+                status,
+              };
+              for (const config of webhooks) {
+                try {
                   await supabase.functions.invoke("fire-webhook", {
-                    body: { webhook_url: webhookConfig.webhook_url, payload },
+                    body: { webhook_url: config.webhook_url, payload: webhookPayload },
                   });
-                }
-              } catch {}
+                } catch {}
+              }
             }
           }
           if (!error) imported++;
