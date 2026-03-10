@@ -1,0 +1,1 @@
+ALTER TABLE public.commission_levels ADD CONSTRAINT commission_levels_unique UNIQUE (tenant_id, carrier, product, position, start_date);

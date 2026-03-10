@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -159,9 +159,8 @@ const BookOfBusiness = () => {
                 {(policies ?? []).map((policy) => {
                   const isExpanded = expandedPolicyId === policy.id;
                   return (
-                    <>
+                    <React.Fragment key={policy.id}>
                       <TableRow
-                        key={policy.id}
                         className="cursor-pointer hover:bg-muted/50"
                         onClick={() => setExpandedPolicyId(isExpanded ? null : policy.id)}
                       >
@@ -225,7 +224,7 @@ const BookOfBusiness = () => {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </React.Fragment>
                   );
                 })}
               </TableBody>

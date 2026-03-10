@@ -246,7 +246,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
           rate: parseFloat(r.rate.replace("%", "")) / 100,
           start_date: r.start_date,
         }));
-        const { error } = await supabase.from("commission_levels").insert(records);
+        const { error } = await supabase.from("commission_levels").upsert(records, { onConflict: "tenant_id,carrier,product,position,start_date", ignoreDuplicates: true });
         if (!error) imported = records.length;
         setImportProgress(100);
       } else if (tab === "policies") {
