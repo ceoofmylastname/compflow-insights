@@ -11,10 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useWebhookConfigs, useCreateWebhook, useDeleteWebhook } from "@/hooks/useWebhookConfigs";
+import { useAgents } from "@/hooks/useAgents";
 import { Trash2, Send, Plus, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { recalculateAllPayouts } from "@/lib/commission-engine";
