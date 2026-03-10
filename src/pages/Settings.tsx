@@ -15,8 +15,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useWebhookConfigs, useCreateWebhook, useDeleteWebhook } from "@/hooks/useWebhookConfigs";
-import { Trash2, Send, Plus } from "lucide-react";
+import { Trash2, Send, Plus, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { recalculateAllPayouts } from "@/lib/commission-engine";
 
 const Settings = () => {
   const { data: currentAgent } = useCurrentAgent();
