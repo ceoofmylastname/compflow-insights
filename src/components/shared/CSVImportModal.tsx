@@ -10,8 +10,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents } from "@/hooks/useAgents";
-import { useCommissionLevels, lookupCommissionRate } from "@/hooks/useCommissionLevels";
 import { parseCSV, autoMapFields, cleanCurrency, normalizeStatus, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
+import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { toast } from "sonner";
 
 interface CSVImportModalProps {
@@ -46,7 +46,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents } = useAgents();
-  const { data: commissionLevels } = useCommissionLevels();
+  
   const queryClient = useQueryClient();
 
   const systemFields = tab === "agents" ? AGENT_FIELDS : tab === "commissions" ? COMMISSION_FIELDS : POLICY_FIELDS;
@@ -259,26 +259,13 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
             .select()
             .single();
 
-          if (!error && policy && resolvedAgentId && commissionLevels) {
+          if (!error && policy) {
+            // Calculate commission payouts using engine
+            try {
+              await calculateAndSavePayouts(policy.id, supabase);
+            } catch {}
+
             const agent = agents?.find((a) => a.id === resolvedAgentId);
-            const rate = lookupCommissionRate(
-              commissionLevels,
-              r.carrier,
-              agent?.position || null,
-              r.application_date
-            );
-            if (rate != null) {
-              await supabase.from("commission_payouts").upsert(
-                {
-                  tenant_id: tenantId,
-                  policy_id: policy.id,
-                  agent_id: resolvedAgentId,
-                  commission_rate: rate,
-                  commission_amount: premium * rate,
-                },
-                { onConflict: "policy_id,agent_id", ignoreDuplicates: false }
-              );
-            }
 
             if (status === "Active" && webhooks.length > 0) {
               const webhookPayload = {

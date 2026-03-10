@@ -7,9 +7,13 @@ import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { usePolicies, Policy } from "@/hooks/usePolicies";
 import { useAgents } from "@/hooks/useAgents";
+import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 const BookOfBusiness = () => {
   const [search, setSearch] = useState("");
@@ -19,6 +23,7 @@ const BookOfBusiness = () => {
   const [agentFilter, setAgentFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -34,6 +39,10 @@ const BookOfBusiness = () => {
     dateTo: dateTo || undefined,
   });
   const { data: agents } = useAgents();
+
+  const { data: expandedPayouts, isLoading: payoutsLoading } = useCommissionPayouts(
+    expandedPolicyId ? { policyId: expandedPolicyId } : {}
+  );
 
   const getAgentName = (id: string | null) => {
     const a = agents?.find((x) => x.id === id);
@@ -95,7 +104,92 @@ const BookOfBusiness = () => {
         ) : (policies ?? []).length === 0 ? (
           <EmptyState title="No policies found" description="Your book of business will appear here after importing policies." />
         ) : (
-          <DataTable columns={columns} data={policies ?? []} pageSize={25} exportFilename="book-of-business.csv" />
+          <div className="rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8"></TableHead>
+                  {columns.map((col) => (
+                    <TableHead key={String(col.key)}>{col.label}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(policies ?? []).map((policy) => {
+                  const isExpanded = expandedPolicyId === policy.id;
+                  return (
+                    <>
+                      <TableRow
+                        key={policy.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => setExpandedPolicyId(isExpanded ? null : policy.id)}
+                      >
+                        <TableCell className="w-8 px-2">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </TableCell>
+                        {columns.map((col) => (
+                          <TableCell key={String(col.key)}>
+                            {col.render ? col.render(policy) : String((policy as any)[col.key] ?? "")}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow key={`${policy.id}-payouts`}>
+                          <TableCell colSpan={columns.length + 1} className="bg-muted/30 p-0">
+                            <div className="px-6 py-3">
+                              <p className="text-sm font-semibold text-foreground mb-2">Commission Payouts</p>
+                              {payoutsLoading ? (
+                                <p className="text-sm text-muted-foreground">Loading…</p>
+                              ) : !expandedPayouts || expandedPayouts.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No payouts calculated for this policy.</p>
+                              ) : (
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Agent</TableHead>
+                                      <TableHead>Position</TableHead>
+                                      <TableHead>Rate</TableHead>
+                                      <TableHead>Amount</TableHead>
+                                      <TableHead>Type</TableHead>
+                                      <TableHead>Contract</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {expandedPayouts.map((p) => (
+                                      <TableRow key={p.id}>
+                                        <TableCell>{p.agent_name}</TableCell>
+                                        <TableCell>{p.agent_position}</TableCell>
+                                        <TableCell>{p.commission_rate != null ? `${(p.commission_rate * 100).toFixed(1)}%` : "--"}</TableCell>
+                                        <TableCell>{p.commission_amount != null ? formatCurrency(p.commission_amount) : "--"}</TableCell>
+                                        <TableCell>
+                                          <Badge variant={p.payout_type === "override" ? "secondary" : "default"}>
+                                            {p.payout_type}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                          {p.contract_type ? (
+                                            <Badge variant="outline">{p.contract_type}</Badge>
+                                          ) : "--"}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </div>
     </AppLayout>
