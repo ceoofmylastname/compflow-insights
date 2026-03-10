@@ -104,6 +104,7 @@ const Settings = () => {
           <TabsList>
             <TabsTrigger value="profile">Profile</TabsTrigger>
             {isOwner && <TabsTrigger value="agency">Agency</TabsTrigger>}
+            {isOwner && <TabsTrigger value="aliases">Carrier Aliases</TabsTrigger>}
             {isOwner && <TabsTrigger value="webhooks">Webhooks</TabsTrigger>}
             {isOwner && <TabsTrigger value="danger">Danger Zone</TabsTrigger>}
           </TabsList>
