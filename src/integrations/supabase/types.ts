@@ -73,6 +73,48 @@ export type Database = {
           },
         ]
       }
+      carrier_agent_aliases: {
+        Row: {
+          agent_id: string
+          carrier: string
+          created_at: string
+          id: string
+          tenant_id: string
+          writing_agent_id: string
+        }
+        Insert: {
+          agent_id: string
+          carrier: string
+          created_at?: string
+          id?: string
+          tenant_id: string
+          writing_agent_id: string
+        }
+        Update: {
+          agent_id?: string
+          carrier?: string
+          created_at?: string
+          id?: string
+          tenant_id?: string
+          writing_agent_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "carrier_agent_aliases_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "carrier_agent_aliases_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commission_levels: {
         Row: {
           carrier: string
