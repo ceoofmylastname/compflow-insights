@@ -204,6 +204,15 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
         if (!error) imported = records.length;
         setImportProgress(100);
       } else if (tab === "policies") {
+        // Fetch all active deal.posted webhooks upfront
+        const { data: activeWebhooks } = await supabase
+          .from("webhook_configs")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .eq("is_active", true)
+          .eq("event_type", "deal.posted" as any);
+        const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string }>;
+
         for (let i = 0; i < validRows.length; i++) {
           const r = validRows[i];
 
