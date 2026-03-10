@@ -159,9 +159,8 @@ const BookOfBusiness = () => {
                 {(policies ?? []).map((policy) => {
                   const isExpanded = expandedPolicyId === policy.id;
                   return (
-                    <>
+                    <React.Fragment key={policy.id}>
                       <TableRow
-                        key={policy.id}
                         className="cursor-pointer hover:bg-muted/50"
                         onClick={() => setExpandedPolicyId(isExpanded ? null : policy.id)}
                       >
