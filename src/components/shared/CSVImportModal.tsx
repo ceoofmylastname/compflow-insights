@@ -10,8 +10,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents } from "@/hooks/useAgents";
-import { useCommissionLevels, lookupCommissionRate } from "@/hooks/useCommissionLevels";
 import { parseCSV, autoMapFields, cleanCurrency, normalizeStatus, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
+import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { toast } from "sonner";
 
 interface CSVImportModalProps {
