@@ -139,6 +139,12 @@ const Settings = () => {
           )}
 
           {isOwner && (
+            <TabsContent value="aliases" className="space-y-4 mt-4">
+              <CarrierAliasesSection tenantId={currentAgent?.tenant_id} />
+            </TabsContent>
+          )}
+
+          {isOwner && (
             <TabsContent value="webhooks" className="space-y-4 mt-4">
               <WebhooksSection />
             </TabsContent>
