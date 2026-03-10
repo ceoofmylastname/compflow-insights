@@ -1,0 +1,1 @@
+ALTER TABLE public.webhook_configs ADD COLUMN event_type text NOT NULL DEFAULT 'deal.posted';
