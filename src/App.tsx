@@ -11,6 +11,13 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import Onboarding from "./pages/Onboarding";
+import MyProduction from "./pages/MyProduction";
+import TeamProduction from "./pages/TeamProduction";
+import BookOfBusiness from "./pages/BookOfBusiness";
+import Scoreboard from "./pages/Scoreboard";
+import AgentRoster from "./pages/AgentRoster";
+import CommissionLevels from "./pages/CommissionLevels";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -31,6 +38,13 @@ const App = () => (
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+            <Route path="/my-production" element={<ProtectedRoute><MyProduction /></ProtectedRoute>} />
+            <Route path="/team-production" element={<ProtectedRoute><TeamProduction /></ProtectedRoute>} />
+            <Route path="/book-of-business" element={<ProtectedRoute><BookOfBusiness /></ProtectedRoute>} />
+            <Route path="/scoreboard" element={<ProtectedRoute><Scoreboard /></ProtectedRoute>} />
+            <Route path="/agent-roster" element={<ProtectedRoute><AgentRoster /></ProtectedRoute>} />
+            <Route path="/commission-levels" element={<ProtectedRoute><CommissionLevels /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
