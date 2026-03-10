@@ -15,8 +15,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useWebhookConfigs, useCreateWebhook, useDeleteWebhook } from "@/hooks/useWebhookConfigs";
-import { Trash2, Send, Plus } from "lucide-react";
+import { Trash2, Send, Plus, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { recalculateAllPayouts } from "@/lib/commission-engine";
 
 const Settings = () => {
   const { data: currentAgent } = useCurrentAgent();
@@ -42,10 +43,27 @@ const Settings = () => {
   }
 
   // Danger zone
-
-  // Danger zone
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [accountDeleteConfirm, setAccountDeleteConfirm] = useState("");
+  const [recalculating, setRecalculating] = useState(false);
+
+  const handleRecalculateAll = async () => {
+    if (!currentAgent) return;
+    setRecalculating(true);
+    try {
+      const result = await recalculateAllPayouts(currentAgent.tenant_id, supabase);
+      if (result.errors.length > 0) {
+        toast.error(`Recalculated ${result.processed} policies with ${result.errors.length} error(s)`);
+      } else {
+        toast.success(`Recalculated payouts for ${result.processed} policies`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
+    } catch (err: any) {
+      toast.error(`Recalculation failed: ${err.message}`);
+    } finally {
+      setRecalculating(false);
+    }
+  };
 
   const handleSaveProfile = async () => {
     if (!currentAgent) return;
@@ -128,8 +146,16 @@ const Settings = () => {
             <TabsContent value="danger" className="space-y-4 mt-4">
               <Card className="border-destructive/50">
                 <CardHeader><CardTitle className="text-destructive">Danger Zone</CardTitle></CardHeader>
-                <CardContent className="space-y-6">
+              <CardContent className="space-y-6">
                   <div className="space-y-2">
+                    <p className="text-sm text-foreground font-medium">Recalculate All Payouts</p>
+                    <p className="text-xs text-muted-foreground">Re-run the commission engine for every policy. Use after updating commission rates retroactively.</p>
+                    <Button variant="outline" onClick={handleRecalculateAll} disabled={recalculating}>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${recalculating ? "animate-spin" : ""}`} />
+                      {recalculating ? "Recalculating..." : "Recalculate All Payouts"}
+                    </Button>
+                  </div>
+                  <div className="space-y-2 border-t border-border pt-4">
                     <p className="text-sm text-foreground font-medium">Delete All Policies</p>
                     <p className="text-xs text-muted-foreground">This will permanently delete all policies and commission payouts for your agency.</p>
                     <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder='Type "DELETE ALL POLICIES" to confirm' />
