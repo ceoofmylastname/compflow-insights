@@ -43,10 +43,27 @@ const Settings = () => {
   }
 
   // Danger zone
-
-  // Danger zone
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [accountDeleteConfirm, setAccountDeleteConfirm] = useState("");
+  const [recalculating, setRecalculating] = useState(false);
+
+  const handleRecalculateAll = async () => {
+    if (!currentAgent) return;
+    setRecalculating(true);
+    try {
+      const result = await recalculateAllPayouts(currentAgent.tenant_id, supabase);
+      if (result.errors.length > 0) {
+        toast.error(`Recalculated ${result.processed} policies with ${result.errors.length} error(s)`);
+      } else {
+        toast.success(`Recalculated payouts for ${result.processed} policies`);
+      }
+      queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
+    } catch (err: any) {
+      toast.error(`Recalculation failed: ${err.message}`);
+    } finally {
+      setRecalculating(false);
+    }
+  };
 
   const handleSaveProfile = async () => {
     if (!currentAgent) return;
