@@ -162,7 +162,9 @@ export type Database = {
           calculated_at: string
           commission_amount: number | null
           commission_rate: number | null
+          contract_type: string | null
           id: string
+          payout_type: string
           policy_id: string
           tenant_id: string
         }
@@ -171,7 +173,9 @@ export type Database = {
           calculated_at?: string
           commission_amount?: number | null
           commission_rate?: number | null
+          contract_type?: string | null
           id?: string
+          payout_type?: string
           policy_id: string
           tenant_id: string
         }
@@ -180,7 +184,9 @@ export type Database = {
           calculated_at?: string
           commission_amount?: number | null
           commission_rate?: number | null
+          contract_type?: string | null
           id?: string
+          payout_type?: string
           policy_id?: string
           tenant_id?: string
         }
