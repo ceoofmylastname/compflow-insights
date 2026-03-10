@@ -168,3 +168,40 @@ export async function calculateAndSavePayouts(
       .upsert(payouts as any, { onConflict: "policy_id,agent_id", ignoreDuplicates: false });
   }
 }
+
+/**
+ * Recalculate commission payouts for all policies in a tenant.
+ * Useful when commission rates are updated retroactively.
+ */
+export async function recalculateAllPayouts(
+  tenantId: string,
+  supabaseClient: SupabaseClient
+): Promise<{ processed: number; errors: string[] }> {
+  const errors: string[] = [];
+  let processed = 0;
+
+  // Fetch all policy IDs for the tenant
+  const { data: policies, error: fetchErr } = await supabaseClient
+    .from("policies")
+    .select("id")
+    .eq("tenant_id", tenantId);
+
+  if (fetchErr) {
+    return { processed: 0, errors: [fetchErr.message] };
+  }
+
+  if (!policies || policies.length === 0) {
+    return { processed: 0, errors: [] };
+  }
+
+  for (const policy of policies) {
+    try {
+      await calculateAndSavePayouts(policy.id, supabaseClient);
+      processed++;
+    } catch (err: any) {
+      errors.push(`Policy ${policy.id}: ${err.message ?? "unknown error"}`);
+    }
+  }
+
+  return { processed, errors };
+}

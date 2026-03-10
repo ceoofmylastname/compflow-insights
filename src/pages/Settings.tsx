@@ -146,8 +146,16 @@ const Settings = () => {
             <TabsContent value="danger" className="space-y-4 mt-4">
               <Card className="border-destructive/50">
                 <CardHeader><CardTitle className="text-destructive">Danger Zone</CardTitle></CardHeader>
-                <CardContent className="space-y-6">
+              <CardContent className="space-y-6">
                   <div className="space-y-2">
+                    <p className="text-sm text-foreground font-medium">Recalculate All Payouts</p>
+                    <p className="text-xs text-muted-foreground">Re-run the commission engine for every policy. Use after updating commission rates retroactively.</p>
+                    <Button variant="outline" onClick={handleRecalculateAll} disabled={recalculating}>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${recalculating ? "animate-spin" : ""}`} />
+                      {recalculating ? "Recalculating..." : "Recalculate All Payouts"}
+                    </Button>
+                  </div>
+                  <div className="space-y-2 border-t border-border pt-4">
                     <p className="text-sm text-foreground font-medium">Delete All Policies</p>
                     <p className="text-xs text-muted-foreground">This will permanently delete all policies and commission payouts for your agency.</p>
                     <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder='Type "DELETE ALL POLICIES" to confirm' />
