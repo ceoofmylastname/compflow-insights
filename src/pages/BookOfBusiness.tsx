@@ -7,13 +7,20 @@ import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { usePolicies, Policy } from "@/hooks/usePolicies";
 import { useAgents } from "@/hooks/useAgents";
+import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
+import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+const POLICY_STATUSES = ["Submitted", "Pending", "Active", "Terminated"];
 
 const BookOfBusiness = () => {
   const [search, setSearch] = useState("");
@@ -24,6 +31,9 @@ const BookOfBusiness = () => {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+  const { data: currentAgent } = useCurrentAgent();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -53,12 +63,51 @@ const BookOfBusiness = () => {
     return [...new Set((policies ?? []).map((p) => p.carrier).filter(Boolean))].sort() as string[];
   }, [policies]);
 
+  const handleStatusChange = async (policyId: string, newStatus: string) => {
+    const { error } = await supabase
+      .from("policies")
+      .update({ status: newStatus })
+      .eq("id", policyId);
+    if (error) {
+      toast.error("Failed to update status");
+      return;
+    }
+    try {
+      await calculateAndSavePayouts(policyId, supabase);
+    } catch {}
+    queryClient.invalidateQueries({ queryKey: ["policies"] });
+    queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
+    toast.success(`Status updated to ${newStatus}`);
+  };
+
+  const isOwner = currentAgent?.is_owner ?? false;
+
   const columns: Column<Policy>[] = [
     { key: "client_name", label: "Client Name" },
     { key: "carrier", label: "Carrier" },
     { key: "product", label: "Product" },
     { key: "policy_number", label: "Policy Number" },
-    { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
+    {
+      key: "status",
+      label: "Status",
+      render: (r) =>
+        isOwner ? (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Select value={r.status || ""} onValueChange={(v) => handleStatusChange(r.id, v)}>
+              <SelectTrigger className="h-7 w-28 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {POLICY_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <StatusBadge status={r.status} />
+        ),
+    },
     { key: "annual_premium", label: "Annual Premium", render: (r) => formatCurrency(r.annual_premium), getValue: (r) => r.annual_premium },
     { key: "resolved_agent_id", label: "Writing Agent", render: (r) => getAgentName(r.resolved_agent_id) },
     { key: "application_date", label: "Application Date", render: (r) => formatDate(r.application_date) },
@@ -72,20 +121,12 @@ const BookOfBusiness = () => {
         <h1 className="text-2xl font-bold text-foreground">Book of Business</h1>
 
         <div className="flex flex-wrap gap-3">
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search client name..."
-            className="w-64"
-          />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search client name..." className="w-64" />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40"><SelectValue placeholder="All Statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
-              <SelectItem value="Active">Active</SelectItem>
-              <SelectItem value="Submitted">Submitted</SelectItem>
-              <SelectItem value="Pending">Pending</SelectItem>
-              <SelectItem value="Terminated">Terminated</SelectItem>
+              {POLICY_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={carrier} onValueChange={setCarrier}>
