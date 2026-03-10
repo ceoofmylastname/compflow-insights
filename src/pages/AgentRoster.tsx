@@ -109,7 +109,7 @@ const AgentRoster = () => {
       toast.error("Failed to create invite link");
       return;
     }
-    const url = `${window.location.origin}/signup?token=${token}`;
+    const url = `${window.location.origin}/signup?invite=${token}`;
     await navigator.clipboard.writeText(url);
     toast.success("Invite link copied to clipboard");
   };
