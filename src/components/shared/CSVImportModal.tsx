@@ -46,7 +46,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents } = useAgents();
-  const { data: commissionLevels } = useCommissionLevels();
+  
   const queryClient = useQueryClient();
 
   const systemFields = tab === "agents" ? AGENT_FIELDS : tab === "commissions" ? COMMISSION_FIELDS : POLICY_FIELDS;
