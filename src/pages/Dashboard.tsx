@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { GoalProgress } from "@/components/dashboard/GoalProgress";
@@ -20,38 +20,33 @@ const Dashboard = () => {
   const { data: currentAgent, isLoading: agentLoading } = useCurrentAgent();
   const { data: allPolicies, isLoading: policiesLoading } = usePolicies({});
   const { data: agents, isLoading: agentsLoading } = useAgents();
+  const { data: payouts, isLoading: payoutsLoading } = useCommissionPayouts({});
 
-  const now = new Date();
-  const ytdStart = `${now.getFullYear()}-01-01T00:00:00Z`;
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  // Card 1: Total Commission (direct payouts for current agent)
+  const totalCommission = useMemo(() => {
+    if (!payouts || !currentAgent) return 0;
+    return payouts
+      .filter((p) => p.payout_type === "direct" && p.agent_id === currentAgent.id)
+      .reduce((s, p) => s + (p.commission_amount || 0), 0);
+  }, [payouts, currentAgent]);
 
-  const { data: payouts, isLoading: payoutsLoading } = useCommissionPayouts({
-    dateFrom: ytdStart,
-  });
-
-  // Card 1: Total Active Annual Premium
-  const totalActivePremium = (allPolicies ?? [])
-    .filter((p) => p.status === "Active")
-    .reduce((s, p) => s + (p.annual_premium || 0), 0);
-
-  // Card 2: Commission Earned YTD
-  const commissionYTD = (payouts ?? []).reduce(
-    (s, p) => s + (p.commission_amount || 0),
-    0
+  // Card 2: Team Premium (all policies in scope — RLS scopes to downline)
+  const teamPremium = useMemo(
+    () => (allPolicies ?? []).reduce((s, p) => s + (p.annual_premium || 0), 0),
+    [allPolicies]
   );
 
-  // Card 3: Policies This Month
-  const policiesThisMonth = (allPolicies ?? []).filter(
-    (p) => p.application_date && p.application_date >= monthStart
-  ).length;
+  // Card 3: Active Policies count
+  const activePolicies = useMemo(
+    () => (allPolicies ?? []).filter((p) => p.status === "Active").length,
+    [allPolicies]
+  );
 
   // Card 4: Team Size (exclude self)
   const teamSize = Math.max(0, (agents?.length ?? 0) - 1);
 
-  // Goal progress: own active premium vs annual_goal
-  const ownActivePremium = (allPolicies ?? [])
-    .filter((p) => p.status === "Active" && p.resolved_agent_id === currentAgent?.id)
-    .reduce((s, p) => s + (p.annual_premium || 0), 0);
+  // Goal progress: direct commission vs annual_goal
+  const annualGoal = Number(currentAgent?.annual_goal) || 0;
 
   const loading = agentLoading || policiesLoading || payoutsLoading || agentsLoading;
 
@@ -77,20 +72,20 @@ const Dashboard = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
-            title="Total Active Annual Premium"
-            value={formatCurrency(totalActivePremium)}
+            title="Total Commission"
+            value={formatCurrency(totalCommission)}
             icon={DollarSign}
             loading={loading}
           />
           <StatCard
-            title="Commission Earned YTD"
-            value={formatCurrency(commissionYTD)}
+            title="Team Premium"
+            value={formatCurrency(teamPremium)}
             icon={TrendingUp}
             loading={loading}
           />
           <StatCard
-            title="Policies This Month"
-            value={formatNumber(policiesThisMonth)}
+            title="Active Policies"
+            value={formatNumber(activePolicies)}
             icon={FileText}
             loading={loading}
           />
@@ -103,8 +98,8 @@ const Dashboard = () => {
         </div>
 
         <GoalProgress
-          current={ownActivePremium}
-          goal={Number(currentAgent?.annual_goal) || 0}
+          current={totalCommission}
+          goal={annualGoal}
           loading={loading}
         />
 
