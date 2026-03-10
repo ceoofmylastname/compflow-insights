@@ -14,16 +14,358 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agents: {
+        Row: {
+          annual_goal: number | null
+          auth_user_id: string | null
+          contract_type: string | null
+          created_at: string
+          email: string
+          first_name: string
+          id: string
+          is_owner: boolean
+          last_name: string
+          npn: string | null
+          position: string | null
+          start_date: string | null
+          tenant_id: string
+          upline_email: string | null
+        }
+        Insert: {
+          annual_goal?: number | null
+          auth_user_id?: string | null
+          contract_type?: string | null
+          created_at?: string
+          email: string
+          first_name: string
+          id?: string
+          is_owner?: boolean
+          last_name: string
+          npn?: string | null
+          position?: string | null
+          start_date?: string | null
+          tenant_id: string
+          upline_email?: string | null
+        }
+        Update: {
+          annual_goal?: number | null
+          auth_user_id?: string | null
+          contract_type?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          id?: string
+          is_owner?: boolean
+          last_name?: string
+          npn?: string | null
+          position?: string | null
+          start_date?: string | null
+          tenant_id?: string
+          upline_email?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agents_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commission_levels: {
+        Row: {
+          carrier: string
+          created_at: string
+          id: string
+          position: string
+          product: string
+          rate: number
+          start_date: string
+          tenant_id: string
+        }
+        Insert: {
+          carrier: string
+          created_at?: string
+          id?: string
+          position: string
+          product: string
+          rate: number
+          start_date: string
+          tenant_id: string
+        }
+        Update: {
+          carrier?: string
+          created_at?: string
+          id?: string
+          position?: string
+          product?: string
+          rate?: number
+          start_date?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_levels_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commission_payouts: {
+        Row: {
+          agent_id: string
+          calculated_at: string
+          commission_amount: number | null
+          commission_rate: number | null
+          id: string
+          policy_id: string
+          tenant_id: string
+        }
+        Insert: {
+          agent_id: string
+          calculated_at?: string
+          commission_amount?: number | null
+          commission_rate?: number | null
+          id?: string
+          policy_id: string
+          tenant_id: string
+        }
+        Update: {
+          agent_id?: string
+          calculated_at?: string
+          commission_amount?: number | null
+          commission_rate?: number | null
+          id?: string
+          policy_id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_payouts_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_payouts_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commission_payouts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invites: {
+        Row: {
+          accepted: boolean
+          created_at: string
+          id: string
+          invited_by_agent_id: string
+          invitee_email: string
+          invitee_upline_email: string | null
+          tenant_id: string
+          token: string
+        }
+        Insert: {
+          accepted?: boolean
+          created_at?: string
+          id?: string
+          invited_by_agent_id: string
+          invitee_email: string
+          invitee_upline_email?: string | null
+          tenant_id: string
+          token: string
+        }
+        Update: {
+          accepted?: boolean
+          created_at?: string
+          id?: string
+          invited_by_agent_id?: string
+          invitee_email?: string
+          invitee_upline_email?: string | null
+          tenant_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invites_invited_by_agent_id_fkey"
+            columns: ["invited_by_agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      policies: {
+        Row: {
+          annual_premium: number | null
+          application_date: string | null
+          carrier: string | null
+          client_name: string | null
+          contract_type: string | null
+          created_at: string
+          id: string
+          policy_number: string | null
+          product: string | null
+          resolved_agent_id: string | null
+          status: string | null
+          tenant_id: string
+          writing_agent_id: string | null
+        }
+        Insert: {
+          annual_premium?: number | null
+          application_date?: string | null
+          carrier?: string | null
+          client_name?: string | null
+          contract_type?: string | null
+          created_at?: string
+          id?: string
+          policy_number?: string | null
+          product?: string | null
+          resolved_agent_id?: string | null
+          status?: string | null
+          tenant_id: string
+          writing_agent_id?: string | null
+        }
+        Update: {
+          annual_premium?: number | null
+          application_date?: string | null
+          carrier?: string | null
+          client_name?: string | null
+          contract_type?: string | null
+          created_at?: string
+          id?: string
+          policy_number?: string | null
+          product?: string | null
+          resolved_agent_id?: string | null
+          status?: string | null
+          tenant_id?: string
+          writing_agent_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policies_resolved_agent_id_fkey"
+            columns: ["resolved_agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "policies_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenants: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      webhook_configs: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          tenant_id: string
+          webhook_url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          tenant_id: string
+          webhook_url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          tenant_id?: string
+          webhook_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_configs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_current_agent_email: { Args: never; Returns: string }
+      get_current_agent_tenant_id: { Args: never; Returns: string }
+      get_downline_agent_ids: {
+        Args: { _agent_email: string }
+        Returns: string[]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +492,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const
