@@ -311,4 +311,125 @@ function WebhooksSection() {
   );
 }
 
+function CarrierAliasesSection({ tenantId }: { tenantId?: string }) {
+  const { data: agents } = useAgents();
+  const queryClient = useQueryClient();
+
+  const { data: aliases, isLoading } = useQuery({
+    queryKey: ["carrierAliases"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("carrier_agent_aliases")
+        .select("*")
+        .order("carrier");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const [carrier, setCarrier] = useState("");
+  const [writingAgentId, setWritingAgentId] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const getAgentName = (id: string) => {
+    const a = agents?.find((ag) => ag.id === id);
+    return a ? `${a.first_name} ${a.last_name}` : id;
+  };
+
+  const handleAdd = async () => {
+    if (!carrier.trim() || !writingAgentId.trim() || !agentId || !tenantId) return;
+    setSaving(true);
+    const { error } = await supabase.from("carrier_agent_aliases").insert({
+      carrier: carrier.trim(),
+      writing_agent_id: writingAgentId.trim(),
+      agent_id: agentId,
+      tenant_id: tenantId,
+    });
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Alias added");
+    setCarrier("");
+    setWritingAgentId("");
+    setAgentId("");
+    queryClient.invalidateQueries({ queryKey: ["carrierAliases"] });
+  };
+
+  const handleDelete = async (id: string) => {
+    const { error } = await supabase.from("carrier_agent_aliases").delete().eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Alias deleted");
+    queryClient.invalidateQueries({ queryKey: ["carrierAliases"] });
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Add Carrier Alias</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>Carrier</Label>
+            <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="e.g. Mutual of Omaha" />
+          </div>
+          <div>
+            <Label>Writing Agent ID (from carrier)</Label>
+            <Input value={writingAgentId} onChange={(e) => setWritingAgentId(e.target.value)} placeholder="e.g. ABC12345" />
+          </div>
+          <div>
+            <Label>Resolved Agent</Label>
+            <Select value={agentId} onValueChange={setAgentId}>
+              <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
+              <SelectContent>
+                {(agents ?? []).map((a) => (
+                  <SelectItem key={a.id} value={a.id}>{a.first_name} {a.last_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button onClick={handleAdd} disabled={saving || !carrier.trim() || !writingAgentId.trim() || !agentId}>
+            <Plus className="h-4 w-4 mr-1" />
+            {saving ? "Saving..." : "Add Alias"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Existing Aliases</CardTitle></CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : !aliases?.length ? (
+            <p className="text-sm text-muted-foreground">No carrier aliases configured yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Carrier</TableHead>
+                  <TableHead>Writing Agent ID</TableHead>
+                  <TableHead>Resolved Agent</TableHead>
+                  <TableHead className="w-16">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {aliases.map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell>{a.carrier}</TableCell>
+                    <TableCell className="font-mono text-xs">{a.writing_agent_id}</TableCell>
+                    <TableCell>{getAgentName(a.agent_id)}</TableCell>
+                    <TableCell>
+                      <Button size="icon" variant="ghost" onClick={() => handleDelete(a.id)} title="Delete">
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 export default Settings;
