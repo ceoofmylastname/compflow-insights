@@ -39,10 +39,27 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
         token,
       });
       if (error) throw error;
+
+      // Pre-create placeholder agent record so signup can "claim" it
+      const { error: agentError } = await supabase.from("agents").insert({
+        tenant_id: currentAgent.tenant_id,
+        email,
+        first_name: "",
+        last_name: "",
+        position: position || null,
+        contract_type: contractType,
+        annual_goal: annualGoal ? parseFloat(annualGoal) : null,
+        upline_email: currentAgent.email,
+        is_owner: false,
+        start_date: new Date().toISOString().split("T")[0],
+      });
+      if (agentError) console.warn("Agent pre-create failed (may already exist):", agentError.message);
+
       const url = `${window.location.origin}/signup?invite=${token}`;
       setInviteUrl(url);
       toast.success(`Invite created for ${email}`);
       queryClient.invalidateQueries({ queryKey: ["invites"] });
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
     } catch (err: any) {
       toast.error(err.message);
     } finally {
