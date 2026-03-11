@@ -131,8 +131,9 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
               <Label>Annual Goal</Label>
               <Input value={annualGoal} onChange={(e) => setAnnualGoal(e.target.value)} placeholder="$100,000" type="number" />
             </div>
+            <p className="text-xs text-muted-foreground">A shareable invite link will be generated for you to copy and send to the agent.</p>
             <Button className="w-full" onClick={handleSubmit} disabled={loading || !email}>
-              {loading ? "Sending..." : "Send Invite"}
+              {loading ? "Creating..." : "Create Invite Link"}
             </Button>
           </div>
         )}
