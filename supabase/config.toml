@@ -1,1 +1,7 @@
 project_id = "iqxcjayylqvertwznyze"
+
+[functions.manage-custom-domain]
+verify_jwt = false
+
+[functions.fire-webhook]
+verify_jwt = false
