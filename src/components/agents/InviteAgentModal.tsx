@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
+import { usePositionOptions } from "@/hooks/usePositions";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, Check } from "lucide-react";
@@ -24,6 +25,7 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { data: currentAgent } = useCurrentAgent();
+  const { positions: positionOptions } = usePositionOptions();
   const queryClient = useQueryClient();
 
   const handleSubmit = async () => {
@@ -115,7 +117,16 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
             </div>
             <div>
               <Label>Position</Label>
-              <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="e.g. Agent, Manager" />
+              {positionOptions.length > 0 ? (
+                <Select value={position} onValueChange={setPosition}>
+                  <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
+                  <SelectContent>
+                    {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="e.g. Agent, Manager" />
+              )}
             </div>
             <div>
               <Label>Contract Type</Label>

@@ -20,6 +20,14 @@ import AgentRoster from "./pages/AgentRoster";
 import CommissionLevels from "./pages/CommissionLevels";
 import Settings from "./pages/Settings";
 import Carriers from "./pages/Carriers";
+import Positions from "./pages/Positions";
+import ActiveAgents from "./pages/ActiveAgents";
+import Drafts from "./pages/Drafts";
+import Payroll from "./pages/Payroll";
+import Contracts from "./pages/Contracts";
+import Integrations from "./pages/Integrations";
+import AuthenticatedLinks from "./pages/AuthenticatedLinks";
+import ArchivedAgents from "./pages/ArchivedAgents";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -49,6 +57,14 @@ const App = () => (
             <Route path="/commission-levels" element={<ProtectedRoute><CommissionLevels /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/carriers" element={<ProtectedRoute><Carriers /></ProtectedRoute>} />
+            <Route path="/positions" element={<ProtectedRoute><Positions /></ProtectedRoute>} />
+            <Route path="/active-agents" element={<ProtectedRoute><ActiveAgents /></ProtectedRoute>} />
+            <Route path="/drafts" element={<ProtectedRoute><Drafts /></ProtectedRoute>} />
+            <Route path="/payroll" element={<ProtectedRoute><Payroll /></ProtectedRoute>} />
+            <Route path="/contracts" element={<ProtectedRoute><Contracts /></ProtectedRoute>} />
+            <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
+            <Route path="/authenticated-links" element={<ProtectedRoute><AuthenticatedLinks /></ProtectedRoute>} />
+            <Route path="/archived-agents" element={<ProtectedRoute><ArchivedAgents /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </FilterProvider>

@@ -18,8 +18,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CSVImportModal } from "@/components/shared/CSVImportModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { downloadCSV, rowsToCSV } from "@/lib/csv-utils";
+import { downloadCSV, rowsToCSV, downloadTemplate } from "@/lib/csv-utils";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
+import { usePositionOptions } from "@/hooks/usePositions";
+import { useRateAdjustments, useCreateRateAdjustment, useDeleteRateAdjustment } from "@/hooks/useRateAdjustments";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface CarrierGroup {
   carrier: string;
@@ -58,6 +61,18 @@ const CommissionLevels = () => {
   const [saving, setSaving] = useState(false);
 
   const { carriers: allCarriers } = useCarrierOptions();
+  const { positions: positionOptions } = usePositionOptions();
+  const { data: rateAdjustments } = useRateAdjustments();
+  const createAdjustment = useCreateRateAdjustment();
+  const deleteAdjustment = useDeleteRateAdjustment();
+  const [adjCarrier, setAdjCarrier] = useState("");
+  const [adjProduct, setAdjProduct] = useState("");
+  const [adjPosition, setAdjPosition] = useState("");
+  const [adjRate, setAdjRate] = useState("");
+  const [adjStartDate, setAdjStartDate] = useState("");
+  const [adjEndDate, setAdjEndDate] = useState("");
+  const [adjReason, setAdjReason] = useState("");
+  const [mainTab, setMainTab] = useState("rates");
 
   // Filter + search
   const filteredLevels = useMemo(() => {
@@ -201,6 +216,9 @@ const CommissionLevels = () => {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Commission Levels</h1>
           {isOwner && (
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => downloadTemplate("commissions")}>
+                <Download className="mr-2 h-4 w-4" /> Template
+              </Button>
               <Button variant="outline" size="sm" onClick={handleExport} disabled={filteredLevels.length === 0}>
                 <Download className="mr-2 h-4 w-4" /> Export CSV
               </Button>
@@ -251,7 +269,16 @@ const CommissionLevels = () => {
                 </div>
                 <div className="w-32">
                   <Label className="text-xs">Position</Label>
-                  <Input value={addPosition} onChange={(e) => setAddPosition(e.target.value)} placeholder="Position" className="h-8 text-sm" />
+                  {positionOptions.length > 0 ? (
+                    <Select value={addPosition} onValueChange={setAddPosition}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Position" /></SelectTrigger>
+                      <SelectContent>
+                        {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input value={addPosition} onChange={(e) => setAddPosition(e.target.value)} placeholder="Position" className="h-8 text-sm" />
+                  )}
                 </div>
                 <div className="w-24">
                   <Label className="text-xs">Rate (%)</Label>
@@ -358,6 +385,125 @@ const CommissionLevels = () => {
         )}
       </div>
 
+      {/* Rate Adjustments Section */}
+      {isOwner && (
+        <div className="space-y-4 mt-8">
+          <h2 className="text-lg font-semibold text-foreground">Rate Adjustments</h2>
+          <p className="text-sm text-muted-foreground">
+            Temporary adjustments applied on top of base commission rates. Active adjustments are automatically used in payout calculations.
+          </p>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Add Rate Adjustment</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2 items-end">
+                <div className="w-36">
+                  <Label className="text-xs">Carrier</Label>
+                  <Input value={adjCarrier} onChange={(e) => setAdjCarrier(e.target.value)} placeholder="Carrier" className="h-8 text-sm" />
+                </div>
+                <div className="w-36">
+                  <Label className="text-xs">Product</Label>
+                  <Input value={adjProduct} onChange={(e) => setAdjProduct(e.target.value)} placeholder="Product" className="h-8 text-sm" />
+                </div>
+                <div className="w-32">
+                  <Label className="text-xs">Position</Label>
+                  {positionOptions.length > 0 ? (
+                    <Select value={adjPosition} onValueChange={setAdjPosition}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Position" /></SelectTrigger>
+                      <SelectContent>
+                        {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input value={adjPosition} onChange={(e) => setAdjPosition(e.target.value)} placeholder="Position" className="h-8 text-sm" />
+                  )}
+                </div>
+                <div className="w-24">
+                  <Label className="text-xs">Adj Rate</Label>
+                  <Input value={adjRate} onChange={(e) => setAdjRate(e.target.value)} placeholder="0.05" className="h-8 text-sm" />
+                </div>
+                <div className="w-32">
+                  <Label className="text-xs">Start Date</Label>
+                  <Input type="date" value={adjStartDate} onChange={(e) => setAdjStartDate(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <div className="w-32">
+                  <Label className="text-xs">End Date</Label>
+                  <Input type="date" value={adjEndDate} onChange={(e) => setAdjEndDate(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (!adjCarrier || !adjProduct || !adjPosition || !adjRate || !adjStartDate) return;
+                    createAdjustment.mutate({
+                      carrier: adjCarrier.trim(),
+                      product: adjProduct.trim(),
+                      position: adjPosition.trim(),
+                      adjustment_rate: parseFloat(adjRate),
+                      start_date: adjStartDate,
+                      end_date: adjEndDate || undefined,
+                      reason: adjReason || undefined,
+                    }, {
+                      onSuccess: () => {
+                        setAdjCarrier(""); setAdjProduct(""); setAdjPosition("");
+                        setAdjRate(""); setAdjStartDate(""); setAdjEndDate(""); setAdjReason("");
+                      },
+                    });
+                  }}
+                  disabled={createAdjustment.isPending || !adjCarrier || !adjProduct || !adjPosition || !adjRate || !adjStartDate}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="mt-2">
+                <Label className="text-xs">Reason (optional)</Label>
+                <Input value={adjReason} onChange={(e) => setAdjReason(e.target.value)} placeholder="e.g. Promotional bonus" className="h-8 text-sm w-64" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {rateAdjustments && rateAdjustments.length > 0 && (
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Carrier</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Position</TableHead>
+                      <TableHead>Adjustment</TableHead>
+                      <TableHead>Start</TableHead>
+                      <TableHead>End</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead className="w-12"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rateAdjustments.map((adj) => (
+                      <TableRow key={adj.id}>
+                        <TableCell>{adj.carrier}</TableCell>
+                        <TableCell>{adj.product}</TableCell>
+                        <TableCell>{adj.position}</TableCell>
+                        <TableCell className="font-mono">{Number(adj.adjustment_rate) > 0 ? "+" : ""}{(Number(adj.adjustment_rate) * 100).toFixed(2)}%</TableCell>
+                        <TableCell>{formatDate(adj.start_date)}</TableCell>
+                        <TableCell>{adj.end_date ? formatDate(adj.end_date) : "Ongoing"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{adj.reason || "--"}</TableCell>
+                        <TableCell>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => deleteAdjustment.mutate(adj.id)}>
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       <CSVImportModal open={importOpen} onOpenChange={setImportOpen} defaultTab="commissions" />
 
       {/* Edit dialog */}
@@ -367,7 +513,19 @@ const CommissionLevels = () => {
           <div className="space-y-3">
             <div><Label>Carrier</Label><Input value={formCarrier} onChange={(e) => setFormCarrier(e.target.value)} /></div>
             <div><Label>Product</Label><Input value={formProduct} onChange={(e) => setFormProduct(e.target.value)} /></div>
-            <div><Label>Position</Label><Input value={formPosition} onChange={(e) => setFormPosition(e.target.value)} /></div>
+            <div>
+              <Label>Position</Label>
+              {positionOptions.length > 0 ? (
+                <Select value={formPosition} onValueChange={setFormPosition}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={formPosition} onChange={(e) => setFormPosition(e.target.value)} />
+              )}
+            </div>
             <div><Label>Rate (%)</Label><Input value={formRate} onChange={(e) => setFormRate(e.target.value)} placeholder="127.00" /></div>
             <div><Label>Effective Date</Label><Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} /></div>
             <Button className="w-full" onClick={handleEditSave} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>

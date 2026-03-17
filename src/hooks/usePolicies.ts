@@ -38,6 +38,9 @@ export function usePolicies(filters: PolicyFilters = {}) {
 
       let query = supabase.from("policies").select("*", isPaginated ? { count: "exact" } : undefined);
 
+      // Exclude drafts by default
+      query = query.or("is_draft.is.null,is_draft.eq.false");
+
       if (filters.status && filters.status.length > 0) {
         query = query.in("status", filters.status);
       }

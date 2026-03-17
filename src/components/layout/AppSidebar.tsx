@@ -11,6 +11,15 @@ import {
   LogOut,
   Building2,
   Zap,
+  Target,
+  UserCheck,
+  FilePenLine,
+  DollarSign,
+  FileSignature,
+  Plug,
+  Link2,
+  CreditCard,
+  Archive,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -21,6 +30,7 @@ import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useTenant } from "@/hooks/useTenant";
 import { useCarriers } from "@/hooks/useCarriers";
 import { useAgentContracts } from "@/hooks/useAgentContracts";
+import { useDrafts } from "@/hooks/useDrafts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -60,7 +70,9 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
   const { data: tenant } = useTenant();
   const { data: allCarriers } = useCarriers();
   const { data: myContracts } = useAgentContracts(currentAgent?.id);
+  const { data: drafts } = useDrafts();
   const isOwner = currentAgent?.is_owner ?? false;
+  const draftCount = drafts?.length ?? 0;
 
   const carrierBadgeCount = useMemo(() => {
     if (!allCarriers || !myContracts) return 0;
@@ -87,15 +99,29 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
         { title: "Team Production", url: "/team-production", icon: BarChart3 },
         { title: "Book of Business", url: "/book-of-business", icon: BookOpen },
         { title: "Scoreboard", url: "/scoreboard", icon: Trophy },
+        { title: "Active Agents", url: "/active-agents", icon: UserCheck },
         { title: "Agent Roster", url: "/agent-roster", icon: Users },
+        { title: "Contracts", url: "/contracts", icon: FileSignature },
+        { title: "Drafts", url: "/drafts", icon: FilePenLine, badge: draftCount > 0 ? draftCount : undefined },
       ],
     },
     {
       label: "Admin",
       items: [
         { title: "Commission Levels", url: "/commission-levels", icon: Layers },
+        { title: "Positions", url: "/positions", icon: Target, ownerOnly: true },
         { title: "Carriers", url: "/carriers", icon: Building2, ownerOnly: true, badge: carrierBadgeCount > 0 ? carrierBadgeCount : undefined },
+        { title: "Payroll", url: "/payroll", icon: DollarSign, ownerOnly: true },
+        { title: "Integrations", url: "/integrations", icon: Plug, ownerOnly: true },
+        { title: "Auth Links", url: "/authenticated-links", icon: Link2, ownerOnly: true },
+        { title: "Billing", url: "/settings?tab=billing", icon: CreditCard, ownerOnly: true },
+      ],
+    },
+    {
+      label: "Settings",
+      items: [
         { title: "Settings", url: "/settings", icon: Settings },
+        { title: "Archived Agents", url: "/archived-agents", icon: Archive, ownerOnly: true },
       ],
     },
   ];

@@ -25,9 +25,9 @@ interface CSVImportModalProps {
 
 type Step = "upload" | "preview" | "map" | "validate" | "importing" | "done";
 
-const AGENT_FIELDS = ["first_name", "last_name", "email", "npn", "position", "upline_email", "start_date", "annual_goal"];
+const AGENT_FIELDS = ["first_name", "last_name", "email", "npn", "position", "upline_email", "start_date", "annual_goal", "phone"];
 const COMMISSION_FIELDS = ["carrier", "product", "position", "rate", "start_date"];
-const POLICY_FIELDS = ["policy_number", "application_date", "writing_agent_id", "client_name", "client_phone", "client_dob", "carrier", "product", "annual_premium", "status", "contract_type", "lead_source", "effective_date", "notes", "refs_collected", "refs_sold"];
+const POLICY_FIELDS = ["policy_number", "application_date", "writing_agent_id", "client_name", "client_phone", "client_dob", "carrier", "product", "annual_premium", "modal_premium", "billing_interval", "status", "contract_type", "lead_source", "effective_date", "notes", "refs_collected", "refs_sold"];
 
 interface UnresolvedRow {
   row: number;
@@ -244,6 +244,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
               upline_email: r.upline_email || null,
               start_date: r.start_date || null,
               annual_goal: r.annual_goal ? parseFloat(r.annual_goal) : null,
+              phone: r.phone || null,
               is_owner: false,
             },
             { onConflict: "email,tenant_id", ignoreDuplicates: false }
@@ -320,6 +321,8 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
                 carrier: r.carrier || null,
                 product: r.product || null,
                 annual_premium: premium,
+                modal_premium: r.modal_premium ? parseFloat(r.modal_premium.replace(/[^0-9.]/g, "")) : null,
+                billing_interval: r.billing_interval || null,
                 status,
                 contract_type: r.contract_type || null,
                 lead_source: r.lead_source || null,

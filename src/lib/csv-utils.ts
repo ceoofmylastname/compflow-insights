@@ -83,6 +83,37 @@ export function normalizeStatus(val: string): string {
   return map[lower] || val.trim();
 }
 
+const TEMPLATES: Record<string, { filename: string; headers: string[] }> = {
+  agents: {
+    filename: "agent-import-template.csv",
+    headers: ["first_name", "last_name", "email", "npn", "position", "upline_email", "start_date", "annual_goal", "phone"],
+  },
+  policies: {
+    filename: "policy-import-template.csv",
+    headers: [
+      "policy_number", "application_date", "client_name", "client_phone", "client_dob",
+      "carrier", "product", "annual_premium", "modal_premium", "billing_interval",
+      "status", "contract_type", "lead_source", "effective_date", "notes",
+      "refs_collected", "refs_sold", "writing_agent_email",
+    ],
+  },
+  commissions: {
+    filename: "commission-levels-template.csv",
+    headers: ["carrier", "product", "position", "rate", "start_date"],
+  },
+  contracts: {
+    filename: "contracts-import-template.csv",
+    headers: ["agent_email", "carrier", "agent_number", "contract_type", "status", "referral_code", "start_date"],
+  },
+};
+
+export function downloadTemplate(type: keyof typeof TEMPLATES) {
+  const template = TEMPLATES[type];
+  if (!template) return;
+  const csv = template.headers.join(",");
+  downloadCSV(template.filename, csv);
+}
+
 export function levenshtein(a: string, b: string): number {
   const m = a.length,
     n = b.length;

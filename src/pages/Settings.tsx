@@ -40,6 +40,7 @@ const Settings = () => {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [npn, setNpn] = useState("");
+  const [phone, setPhone] = useState("");
   const [annualGoal, setAnnualGoal] = useState("");
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,6 +49,7 @@ const Settings = () => {
     setFirstName(currentAgent.first_name);
     setLastName(currentAgent.last_name);
     setNpn(currentAgent.npn || "");
+    setPhone(currentAgent.phone || "");
     setAnnualGoal(currentAgent.annual_goal ? String(currentAgent.annual_goal) : "");
     setProfileLoaded(true);
   }
@@ -107,7 +109,7 @@ const Settings = () => {
     if (!currentAgent) return;
     setSaving(true);
     const { error } = await supabase.from("agents").update({
-      first_name: firstName, last_name: lastName, npn: npn || null, annual_goal: annualGoal ? parseFloat(annualGoal) : null,
+      first_name: firstName, last_name: lastName, npn: npn || null, phone: phone || null, annual_goal: annualGoal ? parseFloat(annualGoal) : null,
     }).eq("id", currentAgent.id);
     setSaving(false);
     if (error) { toast.error(error.message); return; }
@@ -158,6 +160,7 @@ const Settings = () => {
                 </div>
                 <div><Label>Email</Label><Input value={currentAgent?.email || ""} disabled /></div>
                 <div><Label>NPN</Label><Input value={npn} onChange={(e) => setNpn(e.target.value)} /></div>
+                <div><Label>Phone</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 123-4567" /></div>
                 <div><Label>Annual Goal</Label><Input value={annualGoal} onChange={(e) => setAnnualGoal(e.target.value)} type="number" /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>Position</Label><Input value={currentAgent?.position || "--"} disabled /></div>

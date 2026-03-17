@@ -17,16 +17,27 @@ interface CommissionLevel {
   start_date: string;
 }
 
+interface RateAdjustment {
+  carrier: string;
+  product: string;
+  position: string;
+  adjustment_rate: number;
+  start_date: string;
+  end_date: string | null;
+}
+
 /**
  * Find the commission rate for a given carrier/product/position active on appDate.
  * Levels must be sorted by start_date DESC already.
+ * If rate adjustments exist, applies the adjustment to the base rate.
  */
 function findRate(
   levels: CommissionLevel[],
   carrier: string,
   product: string,
   position: string,
-  appDate: string
+  appDate: string,
+  adjustments?: RateAdjustment[]
 ): number | null {
   const match = levels.find(
     (l) =>
@@ -35,7 +46,25 @@ function findRate(
       l.position === position &&
       l.start_date <= appDate
   );
-  return match?.rate ?? null;
+  if (!match) return null;
+
+  let rate = match.rate;
+
+  if (adjustments) {
+    const adj = adjustments.find(
+      (a) =>
+        a.carrier === carrier &&
+        a.product === product &&
+        a.position === position &&
+        a.start_date <= appDate &&
+        (!a.end_date || a.end_date >= appDate)
+    );
+    if (adj) {
+      rate += adj.adjustment_rate;
+    }
+  }
+
+  return rate;
 }
 
 /**
@@ -90,6 +119,13 @@ export async function calculateAndSavePayouts(
 
   if (!levels || levels.length === 0) return;
 
+  // 3b. Fetch rate adjustments
+  const { data: adjustmentsRaw } = await supabaseClient
+    .from("commission_rate_adjustments")
+    .select("carrier, product, position, adjustment_rate, start_date, end_date")
+    .eq("tenant_id", tenant_id);
+  const adjustments = (adjustmentsRaw ?? []) as RateAdjustment[];
+
   // 4. Find writing agent
   const writingAgent = agentMap.get(resolved_agent_id);
   if (!writingAgent || !writingAgent.position) return;
@@ -98,7 +134,7 @@ export async function calculateAndSavePayouts(
   if (writingAgent.start_date && writingAgent.start_date > application_date) return;
 
   // 5. Look up writing agent's rate
-  const directRate = findRate(levels, carrier, product, writingAgent.position, application_date);
+  const directRate = findRate(levels, carrier, product, writingAgent.position, application_date, adjustments);
   if (directRate == null) return;
 
   const payouts: Array<{
@@ -143,7 +179,7 @@ export async function calculateAndSavePayouts(
       continue;
     }
 
-    const uplineRate = findRate(levels, carrier, product, upline.position, application_date);
+    const uplineRate = findRate(levels, carrier, product, upline.position, application_date, adjustments);
     if (uplineRate != null && uplineRate > downlineRate) {
       const overrideAmount = (uplineRate - downlineRate) * annual_premium;
       payouts.push({

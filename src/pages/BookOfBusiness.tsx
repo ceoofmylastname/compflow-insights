@@ -40,7 +40,9 @@ const BookOfBusiness = () => {
   const [postDealOpen, setPostDealOpen] = useState(false);
   const [showLeadSource, setShowLeadSource] = useState(false);
   const [showEffectiveDate, setShowEffectiveDate] = useState(true);
+  const [showPhone, setShowPhone] = useState(false);
   const [hasRiskFilter, setHasRiskFilter] = useState(false);
+  const [loaOnlyFilter, setLoaOnlyFilter] = useState(false);
   const [leadSourceFilter, setLeadSourceFilter] = useState("");
   const [contractTypeFilter, setContractTypeFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -106,8 +108,11 @@ const BookOfBusiness = () => {
     if (hasRiskFilter) {
       result = result.filter((p) => p.chargeback_risk === true);
     }
+    if (loaOnlyFilter) {
+      result = result.filter((p) => p.contract_type === "LOA");
+    }
     return result;
-  }, [policies, hasRiskFilter]);
+  }, [policies, hasRiskFilter, loaOnlyFilter]);
 
   const handleStatusChange = async (policyId: string, newStatus: string) => {
     const { error } = await supabase
@@ -187,6 +192,18 @@ const BookOfBusiness = () => {
     });
   }
 
+  // Agent phone column (hidden by default)
+  if (showPhone) {
+    columns.push({
+      key: "resolved_agent_id" as keyof Policy,
+      label: "Agent Phone",
+      render: (r) => {
+        const a = agents?.find((x) => x.id === r.resolved_agent_id);
+        return a?.phone || "--";
+      },
+    });
+  }
+
   if (error) return <AppLayout><ErrorBanner message={(error as Error).message} onRetry={refetch} /></AppLayout>;
 
   const fromItem = (page - 1) * PAGE_SIZE + 1;
@@ -220,6 +237,13 @@ const BookOfBusiness = () => {
                       onCheckedChange={(v) => setShowLeadSource(!!v)}
                     />
                     Lead Source
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={showPhone}
+                      onCheckedChange={(v) => setShowPhone(!!v)}
+                    />
+                    Agent Phone
                   </label>
                 </div>
               </PopoverContent>
@@ -263,6 +287,13 @@ const BookOfBusiness = () => {
               </SelectContent>
             </Select>
           )}
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <Checkbox
+              checked={loaOnlyFilter}
+              onCheckedChange={(v) => setLoaOnlyFilter(!!v)}
+            />
+            LOA Only
+          </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <Checkbox
               checked={hasRiskFilter}
@@ -316,6 +347,41 @@ const BookOfBusiness = () => {
                           <TableRow key={`${policy.id}-detail`}>
                             <TableCell colSpan={columns.length + 1} className="bg-accent/20 p-0">
                               <div className="px-6 py-3 space-y-3">
+                                {/* Policy Details */}
+                                <div>
+                                  <p className="text-sm font-semibold text-foreground mb-2">Policy Details</p>
+                                  <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-sm">
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground">Contract Type:</span>
+                                      <span className="text-foreground flex items-center gap-1.5">
+                                        {policy.contract_type || "--"}
+                                        {policy.contract_type === "LOA" && (
+                                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500 text-amber-700 dark:text-amber-400">LOA</Badge>
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground">Modal Premium:</span>
+                                      <span className="text-foreground">{(policy as any).modal_premium ? formatCurrency((policy as any).modal_premium) : "--"}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground">Billing Interval:</span>
+                                      <span className="text-foreground">{(policy as any).billing_interval || "--"}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground">Client Phone:</span>
+                                      <span className="text-foreground">{policy.client_phone || "--"}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground">Client DOB:</span>
+                                      <span className="text-foreground">{formatDate(policy.client_dob)}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="text-muted-foreground">Refs:</span>
+                                      <span className="text-foreground">{policy.refs_collected ?? 0} collected / {policy.refs_sold ?? 0} sold</span>
+                                    </div>
+                                  </div>
+                                </div>
                                 <p className="text-sm font-semibold text-foreground">Commission Payouts</p>
                                 {payoutsLoading ? (
                                   <p className="text-sm text-muted-foreground">Loading...</p>

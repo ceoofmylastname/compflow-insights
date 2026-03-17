@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { useAgents, Agent } from "@/hooks/useAgents";
+import { useAgents, useArchiveAgent, Agent } from "@/hooks/useAgents";
 import { usePolicies, getPoliciesArray } from "@/hooks/usePolicies";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
 import { useAgentContracts, useCreateAgentContract, useDeleteAgentContract } from "@/hooks/useAgentContracts";
@@ -19,7 +19,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, UserPlus, Copy, Plus, Trash2 } from "lucide-react";
+import { MoreHorizontal, UserPlus, Copy, Plus, Trash2, Archive, Download } from "lucide-react";
+import { usePositionOptions } from "@/hooks/usePositions";
+import { downloadTemplate } from "@/lib/csv-utils";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,6 +39,8 @@ const AgentRoster = () => {
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
+  const archiveAgent = useArchiveAgent();
+  const { positions: positionOptions } = usePositionOptions();
   const { data: policiesRaw } = usePolicies({ status: ["Active"] });
   const policies = getPoliciesArray(policiesRaw);
   const { data: payouts } = useCommissionPayouts({ dateFrom: `${new Date().getFullYear()}-01-01T00:00:00Z` });
@@ -62,7 +66,9 @@ const AgentRoster = () => {
     return result;
   }, [downline, search, positionFilter, contractTypeFilter]);
 
-  const positions = useMemo(() => [...new Set(downline.map((a) => a.position).filter(Boolean))].sort() as string[], [downline]);
+  const positions = positionOptions.length > 0
+    ? positionOptions
+    : [...new Set(downline.map((a) => a.position).filter(Boolean))].sort() as string[];
 
   const getUplineName = (email: string | null) => {
     if (!email) return "--";
@@ -123,6 +129,7 @@ const AgentRoster = () => {
     { key: "name", label: "Full Name", render: (r) => `${r.first_name} ${r.last_name}` },
     { key: "email", label: "Email" },
     { key: "npn", label: "NPN" },
+    { key: "phone", label: "Phone", render: (r) => r.phone || "--" },
     { key: "position", label: "Position" },
     { key: "upline_email", label: "Upline", render: (r) => getUplineName(r.upline_email) },
     { key: "contract_type", label: "Contract Type" },
@@ -187,13 +194,12 @@ const AgentRoster = () => {
                   <Copy className="mr-2 h-3.5 w-3.5" /> Copy Invite Link
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  className="text-destructive"
-                  onClick={async () => {
-                    if (!confirm(`Remove ${r.first_name} ${r.last_name}?`)) return;
-                    toast.error("Remove not available — contact support");
+                  onClick={() => {
+                    if (!confirm(`Archive ${r.first_name} ${r.last_name}? They will be moved to Archived Agents.`)) return;
+                    archiveAgent.mutate(r.id);
                   }}
                 >
-                  Remove
+                  <Archive className="mr-2 h-3.5 w-3.5" /> Archive
                 </DropdownMenuItem>
               </>
             )}
@@ -217,6 +223,9 @@ const AgentRoster = () => {
                 <TabsTrigger value="orgchart">Org Chart</TabsTrigger>
               </TabsList>
             </Tabs>
+            <Button variant="outline" size="sm" onClick={() => downloadTemplate("agents")}>
+              <Download className="mr-2 h-4 w-4" /> Template
+            </Button>
             <Button size="sm" className="btn-primary-elevated" onClick={() => setInviteOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" /> Invite Agent
             </Button>
@@ -298,6 +307,7 @@ const AgentRoster = () => {
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between"><span className="text-muted-foreground">Position</span><span>{profileAgent.position || "--"}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">NPN</span><span>{profileAgent.npn || "--"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span>{profileAgent.phone || "--"}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Contract Type</span><span>{profileAgent.contract_type || "--"}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Start Date</span><span>{formatDate(profileAgent.start_date)}</span></div>
                       <div className="flex justify-between"><span className="text-muted-foreground">Annual Goal</span><span>{formatCurrency(Number(profileAgent.annual_goal))}</span></div>

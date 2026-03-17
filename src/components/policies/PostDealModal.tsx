@@ -61,8 +61,11 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
   const [notes, setNotes] = useState("");
   const [refsCollected, setRefsCollected] = useState("");
   const [refsSold, setRefsSold] = useState("");
+  const [modalPremium, setModalPremium] = useState("");
+  const [billingInterval, setBillingInterval] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   const isOwner = currentAgent?.is_owner ?? false;
 
@@ -121,6 +124,8 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
     setNotes("");
     setRefsCollected("");
     setRefsSold("");
+    setModalPremium("");
+    setBillingInterval("");
     setErrors({});
   };
 
@@ -159,7 +164,10 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
             notes: notes.trim() || null,
             refs_collected: refsCollected ? parseInt(refsCollected, 10) : null,
             refs_sold: refsSold ? parseInt(refsSold, 10) : null,
+            modal_premium: modalPremium ? parseFloat(modalPremium) : null,
+            billing_interval: billingInterval || null,
             resolved_agent_id: resolvedAgentId,
+            is_draft: false,
           },
           { onConflict: "policy_number,tenant_id", ignoreDuplicates: false }
         )
@@ -223,6 +231,50 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
       toast.error(`Failed to post deal: ${err.message}`);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!currentAgent || !clientName.trim()) {
+      toast.error("At least a client name is required to save a draft");
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      const resolvedAgentId =
+        isOwner && writingAgentId ? writingAgentId : currentAgent.id;
+      const { error } = await supabase.from("policies").insert({
+        tenant_id: currentAgent.tenant_id,
+        policy_number: policyNumber.trim() || `DRAFT-${Date.now()}`,
+        application_date: applicationDate || new Date().toISOString().split("T")[0],
+        client_name: clientName.trim(),
+        client_phone: clientPhone.trim() || null,
+        client_dob: clientDob || null,
+        carrier: carrier.trim() || null,
+        product: product.trim() || null,
+        annual_premium: annualPremium ? parseFloat(annualPremium) : 0,
+        status: status || "Submitted",
+        contract_type: contractType || null,
+        lead_source: leadSource || null,
+        effective_date: effectiveDate || null,
+        notes: notes.trim() || null,
+        refs_collected: refsCollected ? parseInt(refsCollected, 10) : null,
+        refs_sold: refsSold ? parseInt(refsSold, 10) : null,
+        modal_premium: modalPremium ? parseFloat(modalPremium) : null,
+        billing_interval: billingInterval || null,
+        resolved_agent_id: resolvedAgentId,
+        is_draft: true,
+        draft_saved_at: new Date().toISOString(),
+      } as any);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["drafts"] });
+      toast.success("Saved as draft");
+      resetForm();
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(`Failed to save draft: ${err.message}`);
+    } finally {
+      setSavingDraft(false);
     }
   };
 
@@ -460,6 +512,35 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
             />
           </div>
 
+          {/* Modal Premium & Billing Interval */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Modal Premium</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={modalPremium}
+                onChange={(e) => setModalPremium(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <Label>Billing Interval</Label>
+              <Select value={billingInterval} onValueChange={setBillingInterval}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select interval" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Monthly">Monthly</SelectItem>
+                  <SelectItem value="Quarterly">Quarterly</SelectItem>
+                  <SelectItem value="Semi-Annual">Semi-Annual</SelectItem>
+                  <SelectItem value="Annual">Annual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           {/* Refs Collected & Refs Sold */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -532,13 +613,23 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
             </div>
           )}
 
-          <Button
-            className="w-full"
-            onClick={handleSubmit}
-            disabled={submitting}
-          >
-            {submitting ? "Posting..." : "Post Deal"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={handleSaveDraft}
+              disabled={savingDraft || submitting}
+            >
+              {savingDraft ? "Saving..." : "Save as Draft"}
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleSubmit}
+              disabled={submitting || savingDraft}
+            >
+              {submitting ? "Posting..." : "Post Deal"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
