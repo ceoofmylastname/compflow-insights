@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_contracts: {
+        Row: {
+          agent_id: string
+          agent_number: string | null
+          carrier: string
+          contract_type: string
+          created_at: string
+          id: string
+          start_date: string | null
+          status: string
+          tenant_id: string
+        }
+        Insert: {
+          agent_id: string
+          agent_number?: string | null
+          carrier: string
+          contract_type?: string
+          created_at?: string
+          id?: string
+          start_date?: string | null
+          status?: string
+          tenant_id: string
+        }
+        Update: {
+          agent_id?: string
+          agent_number?: string | null
+          carrier?: string
+          contract_type?: string
+          created_at?: string
+          id?: string
+          start_date?: string | null
+          status?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_contracts_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_contracts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           annual_goal: number | null
@@ -69,6 +120,41 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "agents_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_snapshots: {
+        Row: {
+          active_agent_count: number
+          created_at: string
+          id: string
+          notes: string | null
+          snapshot_date: string
+          tenant_id: string
+        }
+        Insert: {
+          active_agent_count?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          snapshot_date?: string
+          tenant_id: string
+        }
+        Update: {
+          active_agent_count?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          snapshot_date?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_snapshots_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -146,6 +232,47 @@ export type Database = {
             columns: ["carrier_id"]
             isOneToOne: false
             referencedRelation: "carriers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      carrier_profiles: {
+        Row: {
+          carrier_name: string
+          column_mappings: Json
+          created_at: string
+          custom_fields: Json
+          header_fingerprint: string[] | null
+          id: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          carrier_name: string
+          column_mappings?: Json
+          created_at?: string
+          custom_fields?: Json
+          header_fingerprint?: string[] | null
+          id?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          carrier_name?: string
+          column_mappings?: Json
+          created_at?: string
+          custom_fields?: Json
+          header_fingerprint?: string[] | null
+          id?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "carrier_profiles_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
         ]
@@ -518,6 +645,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      snapshot_active_agents: { Args: { p_tenant_id: string }; Returns: number }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
