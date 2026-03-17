@@ -58,7 +58,7 @@ const Onboarding = () => {
       <Card className="w-full max-w-lg">
         <CardHeader className="items-center text-center">
           <CFLogo size="lg" />
-          <CardTitle className="mt-4 text-2xl">Get Started with CompFlow</CardTitle>
+          <CardTitle className="mt-4 text-2xl">Get Started with BaseshopHQ</CardTitle>
           <p className="text-muted-foreground">Complete these steps to set up your agency</p>
         </CardHeader>
         <CardContent className="space-y-4">

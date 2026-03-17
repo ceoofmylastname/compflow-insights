@@ -49,7 +49,9 @@ interface NavSection {
   items: NavItem[];
 }
 
-export function AppSidebar() {
+import type { DomainTenant } from "@/hooks/useTenantFromDomain";
+
+export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | null } = {}) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
@@ -106,9 +108,9 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="shadow-[4px_0_16px_-4px_rgb(0_0_0/0.12)]">
       <SidebarHeader className="border-b border-sidebar-border px-3 py-4">
         <div className="flex items-center gap-2.5">
-          {tenant?.logo_url ? (
+          {(domainTenant?.logo_url || tenant?.logo_url) ? (
             <img
-              src={tenant.logo_url}
+              src={domainTenant?.logo_url || tenant?.logo_url || ""}
               alt="Logo"
               className="h-8 w-8 rounded-lg object-contain shrink-0"
               onError={(e) => {
@@ -121,7 +123,7 @@ export function AppSidebar() {
           )}
           {!collapsed && (
             <span className="text-base font-bold tracking-tight text-sidebar-foreground">
-              {tenant?.agency_name || "CompFlow"}
+              {domainTenant?.agency_name || tenant?.agency_name || "BaseshopHQ"}
             </span>
           )}
         </div>

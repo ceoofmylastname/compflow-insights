@@ -3,6 +3,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { useAlerts } from "@/hooks/useAlerts";
 import { useTenant } from "@/hooks/useTenant";
+import { useTenantFromDomain, type DomainTenant } from "@/hooks/useTenantFromDomain";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -87,12 +88,13 @@ function AlertBell() {
   );
 }
 
-function BrandingInjector() {
-  const { data: tenant } = useTenant();
+function BrandingInjector({ domainTenant }: { domainTenant?: DomainTenant | null }) {
+  const { data: authTenant } = useTenant();
+  const activeTenant = domainTenant || authTenant;
 
   useEffect(() => {
-    if (tenant?.primary_color) {
-      const hsl = hexToHsl(tenant.primary_color);
+    if (activeTenant?.primary_color) {
+      const hsl = hexToHsl(activeTenant.primary_color);
       document.documentElement.style.setProperty("--primary", hsl);
       document.documentElement.style.setProperty("--ring", hsl);
       document.documentElement.style.setProperty("--sidebar-primary", hsl);
@@ -104,7 +106,15 @@ function BrandingInjector() {
       document.documentElement.style.removeProperty("--sidebar-primary");
       document.documentElement.style.removeProperty("--sidebar-ring");
     };
-  }, [tenant?.primary_color]);
+  }, [activeTenant?.primary_color]);
+
+  useEffect(() => {
+    if (activeTenant?.agency_name) {
+      document.title = activeTenant.agency_name;
+    } else {
+      document.title = "BaseshopHQ";
+    }
+  }, [activeTenant?.agency_name]);
 
   return null;
 }
@@ -112,6 +122,7 @@ function BrandingInjector() {
 export function AppLayout({ children }: { children: ReactNode }) {
   const { dateFrom, dateTo, setDateFrom, setDateTo } = useFilters();
   const { data: currentAgent } = useCurrentAgent();
+  const { data: domainTenant } = useTenantFromDomain();
 
   const initials = currentAgent
     ? `${(currentAgent.first_name || "")[0] || ""}${(currentAgent.last_name || "")[0] || ""}`.toUpperCase()
@@ -119,9 +130,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider>
-      <BrandingInjector />
+      <BrandingInjector domainTenant={domainTenant} />
       <div className="min-h-screen flex w-full bg-background">
-        <AppSidebar />
+        <AppSidebar domainTenant={domainTenant} />
         <div className="flex-1 flex flex-col min-w-0">
           <header className="h-16 flex items-center border-b border-border bg-card px-4 md:px-6 gap-4 shrink-0">
             <SidebarTrigger className="mr-1" />

@@ -16,7 +16,9 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useWebhookConfigs, useCreateWebhook, useDeleteWebhook } from "@/hooks/useWebhookConfigs";
 import { useAgents } from "@/hooks/useAgents";
-import { Trash2, Send, Plus, RefreshCw, Camera } from "lucide-react";
+import { Trash2, Send, Plus, RefreshCw, Camera, Copy, Globe, Lock, CheckCircle2, Clock, ExternalLink } from "lucide-react";
+import { useCustomDomain } from "@/hooks/useCustomDomain";
+import type { Tenant } from "@/hooks/useTenant";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/formatters";
 import { Badge } from "@/components/ui/badge";
 import { recalculateAllPayouts } from "@/lib/commission-engine";
@@ -140,6 +142,7 @@ const Settings = () => {
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="writing-numbers">My Writing Numbers</TabsTrigger>
             {isOwner && <TabsTrigger value="agency">Agency</TabsTrigger>}
+            {isOwner && <TabsTrigger value="domain">Domain</TabsTrigger>}
             {isOwner && <TabsTrigger value="aliases">Carrier Aliases</TabsTrigger>}
             {isOwner && <TabsTrigger value="webhooks">Webhooks</TabsTrigger>}
             {isOwner && <TabsTrigger value="billing">Billing</TabsTrigger>}
@@ -184,7 +187,7 @@ const Settings = () => {
                       placeholder="Your agency name"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Displayed in the sidebar instead of "CompFlow"
+                      Displayed in the sidebar instead of "BaseshopHQ"
                     </p>
                   </div>
                   <div>
@@ -232,6 +235,12 @@ const Settings = () => {
                   </Button>
                 </CardContent>
               </Card>
+            </TabsContent>
+          )}
+
+          {isOwner && (
+            <TabsContent value="domain" className="space-y-4 mt-4">
+              <DomainSection tenant={tenant} />
             </TabsContent>
           )}
 
@@ -316,7 +325,7 @@ function WebhooksSection() {
           webhook_url: webhookUrl,
           payload: {
             event: "test",
-            content: "🧪 Test webhook from CompFlow",
+            content: "🧪 Test webhook from BaseshopHQ",
             posted_at: new Date().toISOString(),
           },
         },
@@ -732,6 +741,308 @@ function WritingNumbersSection({ agentId, tenantId }: { agentId?: string; tenant
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function DomainSection({ tenant }: { tenant?: Tenant | null }) {
+  const customDomain = useCustomDomain();
+  const [domainInput, setDomainInput] = useState("");
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+
+  const domainStatus = tenant?.domain_status || "none";
+  const subdomain = tenant?.subdomain;
+  const subdomainUrl = subdomain ? `${subdomain}.baseshophq.com` : null;
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard");
+  };
+
+  const handleConnect = () => {
+    if (!domainInput.trim()) return;
+    customDomain.mutate({ action: "add", hostname: domainInput.trim() });
+  };
+
+  const handleVerify = () => {
+    customDomain.mutate({ action: "verify" }, {
+      onSuccess: (data) => {
+        if (!data.verified) {
+          toast.info("DNS not yet propagated — check your records and try again in a few minutes.");
+        }
+      },
+    });
+  };
+
+  const handleRemove = () => {
+    customDomain.mutate({ action: "remove" });
+    setShowRemoveConfirm(false);
+  };
+
+  // Parse CNAME name from custom_domain (e.g. "app.smithinsurance.com" → "app")
+  const cnameName = tenant?.custom_domain
+    ? tenant.custom_domain.split(".")[0]
+    : "app";
+  const txtName = tenant?.custom_domain
+    ? `_cf-custom-hostname.${cnameName}`
+    : "_cf-custom-hostname.app";
+
+  return (
+    <div className="space-y-4">
+      {/* Subdomain info card */}
+      {subdomainUrl && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Globe className="h-4 w-4" />
+              Your BaseshopHQ Subdomain
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <code className="text-sm font-mono bg-muted px-3 py-2 rounded-md flex-1">
+                {subdomainUrl}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyToClipboard(`https://${subdomainUrl}`)}
+              >
+                <Copy className="h-3.5 w-3.5 mr-1" />
+                Copy
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Share this with your agents as their login URL.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Domain state: none */}
+      {domainStatus === "none" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Connect a Custom Domain</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Enter the full subdomain you want to use (e.g. app.youragency.com)
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={domainInput}
+                onChange={(e) => setDomainInput(e.target.value)}
+                placeholder="app.youragency.com"
+                className="flex-1"
+              />
+              <Button
+                onClick={handleConnect}
+                disabled={customDomain.isPending || !domainInput.trim()}
+              >
+                {customDomain.isPending ? "Connecting..." : "Connect Domain"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Domain state: pending */}
+      {domainStatus === "pending" && tenant?.custom_domain && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="h-4 w-4 text-yellow-500" />
+              Pending Verification — {tenant.custom_domain}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Add these two DNS records at your domain provider.
+              DNS changes typically take 5–30 minutes to propagate.
+            </p>
+
+            <div className="space-y-3">
+              <div className="rounded-lg border border-border p-4 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Record 1 — Route traffic to BaseshopHQ
+                </p>
+                <div className="grid grid-cols-[80px_1fr] gap-y-1 text-sm">
+                  <span className="text-muted-foreground">Type</span>
+                  <span className="font-mono">CNAME</span>
+                  <span className="text-muted-foreground">Name</span>
+                  <span className="font-mono">{cnameName}</span>
+                  <span className="text-muted-foreground">Value</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono">proxy.baseshophq.com</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => copyToClipboard("proxy.baseshophq.com")}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <span className="text-muted-foreground">TTL</span>
+                  <span className="font-mono">Auto</span>
+                </div>
+              </div>
+
+              {tenant.domain_txt_verification && (
+                <div className="rounded-lg border border-border p-4 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Record 2 — Verify domain ownership
+                  </p>
+                  <div className="grid grid-cols-[80px_1fr] gap-y-1 text-sm">
+                    <span className="text-muted-foreground">Type</span>
+                    <span className="font-mono">TXT</span>
+                    <span className="text-muted-foreground">Name</span>
+                    <span className="font-mono">{txtName}</span>
+                    <span className="text-muted-foreground">Value</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs break-all">
+                        {tenant.domain_txt_verification}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() =>
+                          copyToClipboard(tenant.domain_txt_verification!)
+                        }
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <span className="text-muted-foreground">TTL</span>
+                    <span className="font-mono">Auto</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                onClick={handleVerify}
+                disabled={customDomain.isPending}
+              >
+                {customDomain.isPending ? "Checking..." : "Check Verification"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowRemoveConfirm(true)}
+              >
+                Remove Domain
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Domain state: active */}
+      {domainStatus === "active" && tenant?.custom_domain && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              Custom domain active
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2">
+              <code className="text-sm font-mono bg-muted px-3 py-2 rounded-md flex-1">
+                {tenant.custom_domain}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  copyToClipboard(`https://${tenant.custom_domain}`)
+                }
+              >
+                <Copy className="h-3.5 w-3.5 mr-1" />
+                Copy
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Your agents can log in at:{" "}
+              <span className="font-mono text-foreground">
+                https://{tenant.custom_domain}
+              </span>
+            </p>
+            <div className="flex items-center gap-2 text-sm">
+              <Badge variant="default" className="bg-emerald-600">
+                SSL Active
+              </Badge>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setShowRemoveConfirm(true)}
+            >
+              Remove Domain
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Domain state: failed */}
+      {domainStatus === "failed" && tenant?.custom_domain && (
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle className="text-base text-destructive">
+              Domain verification failed — {tenant.custom_domain}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              DNS verification failed. Please check your DNS records and try again.
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={handleVerify} disabled={customDomain.isPending}>
+                Retry Verification
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowRemoveConfirm(true)}
+              >
+                Remove Domain
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Remove confirmation dialog */}
+      {showRemoveConfirm && (
+        <Card className="border-destructive/50">
+          <CardContent className="pt-6 space-y-4">
+            <p className="text-sm font-medium text-foreground">
+              Remove custom domain?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Your agents will no longer be able to log in at{" "}
+              <span className="font-mono">{tenant?.custom_domain}</span>. They
+              will still be able to use your BaseshopHQ subdomain.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowRemoveConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleRemove}
+                disabled={customDomain.isPending}
+              >
+                {customDomain.isPending ? "Removing..." : "Remove Domain"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 

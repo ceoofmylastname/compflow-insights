@@ -8,7 +8,7 @@ const Footer = () => {
         <div className="flex flex-col items-center justify-between gap-8 md:flex-row">
           <div className="flex items-center gap-2">
             <CFLogo size="sm" />
-            <span className="text-lg font-bold text-foreground">CompFlow</span>
+            <span className="text-lg font-bold text-foreground">BaseshopHQ</span>
           </div>
 
           <nav className="flex flex-wrap items-center justify-center gap-6">
@@ -22,7 +22,7 @@ const Footer = () => {
         </div>
 
         <div className="mt-8 text-center text-sm text-muted-foreground">
-          © 2025 CompFlow. All rights reserved.
+          © 2025 BaseshopHQ. All rights reserved.
         </div>
       </div>
     </footer>

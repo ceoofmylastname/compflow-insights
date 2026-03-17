@@ -25,7 +25,7 @@ const HeroSection = () => {
             <span className="text-primary">Team Earns</span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground md:text-xl">
-            CompFlow maps your entire agency hierarchy, calculates commissions by carrier and position level, and gives every agent a live dashboard for their role — from the top of your org to the newest downline recruit.
+            BaseshopHQ maps your entire agency hierarchy, calculates commissions by carrier and position level, and gives every agent a live dashboard for their role — from the top of your org to the newest downline recruit.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link to="/signup">

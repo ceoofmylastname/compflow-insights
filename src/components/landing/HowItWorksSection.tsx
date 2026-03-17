@@ -18,7 +18,7 @@ const steps = [
     icon: Zap,
     step: "03",
     title: "Drop In Policy Reports",
-    description: "Upload policy CSVs from any carrier. CompFlow maps agents by NPN, calculates payouts, and does the rest.",
+    description: "Upload policy CSVs from any carrier. BaseshopHQ maps agents by NPN, calculates payouts, and does the rest.",
   },
 ];
 

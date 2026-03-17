@@ -13,7 +13,7 @@ const Navbar = () => {
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
           <CFLogo size="sm" />
-          <span className="text-lg font-bold text-foreground">CompFlow</span>
+          <span className="text-lg font-bold text-foreground">BaseshopHQ</span>
         </Link>
 
         <nav className="hidden items-center gap-6 md:flex">

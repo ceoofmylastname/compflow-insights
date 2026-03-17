@@ -14,7 +14,7 @@ const CFLogo = ({ size = "md", className = "" }: CFLogoProps) => {
     <div
       className={`${sizes[size]} flex items-center justify-center rounded-lg bg-primary font-extrabold tracking-tight text-primary-foreground ${className}`}
     >
-      CF
+      BH
     </div>
   );
 };

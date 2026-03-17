@@ -12,13 +12,13 @@ const features = [
     icon: Clock,
     title: "Commission Rates That Time-Travel",
     description:
-      "When a policy is written, CompFlow looks up the commission rate that was active on the Application Date — not today. Historical accuracy, zero manual math.",
+      "When a policy is written, BaseshopHQ looks up the commission rate that was active on the Application Date — not today. Historical accuracy, zero manual math.",
   },
   {
     icon: BarChart3,
     title: "Every Carrier. One Dashboard.",
     description:
-      "Upload policy CSVs from any carrier. CompFlow normalizes the data, maps the writing agent by NPN, and calculates payouts across your entire book.",
+      "Upload policy CSVs from any carrier. BaseshopHQ normalizes the data, maps the writing agent by NPN, and calculates payouts across your entire book.",
   },
 ];
 
@@ -31,7 +31,7 @@ const FeaturesSection = () => {
             Built for How Agencies Actually Work
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
-            Not another generic CRM. CompFlow is purpose-built for commission tracking and hierarchy management.
+            Not another generic CRM. BaseshopHQ is purpose-built for commission tracking and hierarchy management.
           </p>
         </div>
 
