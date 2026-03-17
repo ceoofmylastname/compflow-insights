@@ -31,12 +31,12 @@ export function useTenantFromDomain() {
     queryFn: async (): Promise<DomainTenant | null> => {
       if (isAppHostname) return null;
 
-      const { data, error } = await supabase.rpc("resolve_tenant_by_domain", {
+      const { data, error } = await (supabase.rpc as any)("resolve_tenant_by_domain", {
         p_hostname: hostname,
       });
 
-      if (error || !data || data.length === 0) return null;
-      return data[0] as DomainTenant;
+      if (error || !data || (Array.isArray(data) && data.length === 0)) return null;
+      return (Array.isArray(data) ? data[0] : data) as DomainTenant;
     },
     staleTime: 5 * 60 * 1000,
     retry: false,

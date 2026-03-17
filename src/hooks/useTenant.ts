@@ -4,7 +4,16 @@ import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 
-export type Tenant = Tables<"tenants">;
+// Extend the base tenant type with domain columns that may not yet be in the auto-generated types
+export type Tenant = Tables<"tenants"> & {
+  subdomain?: string | null;
+  custom_domain?: string | null;
+  cloudflare_hostname_id?: string | null;
+  domain_txt_verification?: string | null;
+  domain_verified?: boolean;
+  domain_status?: string;
+  plan?: string | null;
+};
 
 export function useTenant() {
   const { data: currentAgent } = useCurrentAgent();
