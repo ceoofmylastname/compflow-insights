@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_contracts: {
+        Row: {
+          agent_id: string
+          agent_number: string | null
+          carrier: string
+          contract_type: string
+          created_at: string
+          id: string
+          start_date: string | null
+          status: string
+          tenant_id: string
+        }
+        Insert: {
+          agent_id: string
+          agent_number?: string | null
+          carrier: string
+          contract_type?: string
+          created_at?: string
+          id?: string
+          start_date?: string | null
+          status?: string
+          tenant_id: string
+        }
+        Update: {
+          agent_id?: string
+          agent_number?: string | null
+          carrier?: string
+          contract_type?: string
+          created_at?: string
+          id?: string
+          start_date?: string | null
+          status?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_contracts_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_contracts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           annual_goal: number | null
@@ -76,126 +127,34 @@ export type Database = {
           },
         ]
       }
-      agent_contracts: {
-        Row: {
-          id: string
-          tenant_id: string
-          agent_id: string
-          carrier: string
-          agent_number: string | null
-          contract_type: string
-          status: string
-          start_date: string | null
-          notes: string | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          tenant_id: string
-          agent_id: string
-          carrier: string
-          agent_number?: string | null
-          contract_type?: string
-          status?: string
-          start_date?: string | null
-          notes?: string | null
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          tenant_id?: string
-          agent_id?: string
-          carrier?: string
-          agent_number?: string | null
-          contract_type?: string
-          status?: string
-          start_date?: string | null
-          notes?: string | null
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_contracts_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "agent_contracts_agent_id_fkey"
-            columns: ["agent_id"]
-            isOneToOne: false
-            referencedRelation: "agents"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       billing_snapshots: {
         Row: {
-          id: string
-          tenant_id: string
-          snapshot_date: string
           active_agent_count: number
           created_at: string
+          id: string
+          notes: string | null
+          snapshot_date: string
+          tenant_id: string
         }
         Insert: {
-          id?: string
-          tenant_id: string
-          snapshot_date?: string
           active_agent_count?: number
           created_at?: string
+          id?: string
+          notes?: string | null
+          snapshot_date?: string
+          tenant_id: string
         }
         Update: {
-          id?: string
-          tenant_id?: string
-          snapshot_date?: string
           active_agent_count?: number
           created_at?: string
+          id?: string
+          notes?: string | null
+          snapshot_date?: string
+          tenant_id?: string
         }
         Relationships: [
           {
             foreignKeyName: "billing_snapshots_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      carrier_profiles: {
-        Row: {
-          id: string
-          tenant_id: string
-          carrier_name: string
-          column_mappings: Json
-          custom_fields: Json
-          header_fingerprint: string[] | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          tenant_id: string
-          carrier_name: string
-          column_mappings?: Json
-          custom_fields?: Json
-          header_fingerprint?: string[] | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          tenant_id?: string
-          carrier_name?: string
-          column_mappings?: Json
-          custom_fields?: Json
-          header_fingerprint?: string[] | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "carrier_profiles_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -247,25 +206,25 @@ export type Database = {
       }
       carrier_products: {
         Row: {
-          id: string
           carrier_id: string
+          created_at: string
+          id: string
           name: string
           type: string | null
-          created_at: string
         }
         Insert: {
-          id?: string
           carrier_id: string
+          created_at?: string
+          id?: string
           name: string
           type?: string | null
-          created_at?: string
         }
         Update: {
-          id?: string
           carrier_id?: string
+          created_at?: string
+          id?: string
           name?: string
           type?: string | null
-          created_at?: string
         }
         Relationships: [
           {
@@ -277,27 +236,68 @@ export type Database = {
           },
         ]
       }
-      carriers: {
+      carrier_profiles: {
         Row: {
+          carrier_name: string
+          column_mappings: Json
+          created_at: string
+          custom_fields: Json
+          header_fingerprint: string[] | null
           id: string
           tenant_id: string
-          name: string
-          status: string
-          created_at: string
+          updated_at: string
         }
         Insert: {
+          carrier_name: string
+          column_mappings?: Json
+          created_at?: string
+          custom_fields?: Json
+          header_fingerprint?: string[] | null
           id?: string
           tenant_id: string
-          name: string
-          status?: string
-          created_at?: string
+          updated_at?: string
         }
         Update: {
+          carrier_name?: string
+          column_mappings?: Json
+          created_at?: string
+          custom_fields?: Json
+          header_fingerprint?: string[] | null
           id?: string
           tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "carrier_profiles_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      carriers: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          status: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          status?: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
           name?: string
           status?: string
-          created_at?: string
+          tenant_id?: string
         }
         Relationships: [
           {
@@ -631,7 +631,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      flag_chargeback_risk: { Args: Record<string, never>; Returns: undefined }
+      flag_chargeback_risk: { Args: never; Returns: undefined }
       get_current_agent_email: { Args: never; Returns: string }
       get_current_agent_tenant_id: { Args: never; Returns: string }
       get_downline_agent_ids: {
@@ -645,10 +645,7 @@ export type Database = {
         }
         Returns: boolean
       }
-      snapshot_active_agents: {
-        Args: { p_tenant_id: string }
-        Returns: number
-      }
+      snapshot_active_agents: { Args: { p_tenant_id: string }; Returns: number }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
