@@ -311,22 +311,29 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
             />
           </div>
 
-          {/* Carrier with datalist autocomplete */}
+          {/* Carrier */}
           <div>
             <Label>
               Carrier <span className="text-destructive">*</span>
             </Label>
-            <Input
-              value={carrier}
-              onChange={(e) => setCarrier(e.target.value)}
-              placeholder="Start typing a carrier name..."
-              list="carrier-options"
-            />
-            <datalist id="carrier-options">
-              {carriers.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+            {carriers.length > 0 ? (
+              <Select value={carrier} onValueChange={(v) => { setCarrier(v); setProduct(""); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select carrier" />
+                </SelectTrigger>
+                <SelectContent>
+                  {carriers.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={carrier}
+                onChange={(e) => setCarrier(e.target.value)}
+                placeholder="Enter carrier name"
+              />
+            )}
             {errors.carrier && (
               <p className="text-xs text-destructive mt-1">{errors.carrier}</p>
             )}
@@ -337,17 +344,24 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
             <Label>
               Product <span className="text-destructive">*</span>
             </Label>
-            <Input
-              value={product}
-              onChange={(e) => setProduct(e.target.value)}
-              placeholder="e.g. Term Life 20"
-              list="product-options"
-            />
-            <datalist id="product-options">
-              {getProducts(carrier).map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
+            {carrier && getProducts(carrier).length > 0 ? (
+              <Select value={product} onValueChange={setProduct}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select product" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getProducts(carrier).map((p) => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={product}
+                onChange={(e) => setProduct(e.target.value)}
+                placeholder="Enter product name"
+              />
+            )}
             {errors.product && (
               <p className="text-xs text-destructive mt-1">{errors.product}</p>
             )}

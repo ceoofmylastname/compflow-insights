@@ -627,11 +627,20 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
   );
 }
 
+const WN_CONTRACT_TYPES = ["Direct Pay", "LOA"];
+const WN_STATUSES = ["active", "inactive", "pending"];
+
+interface WritingNumberEdit {
+  agent_number?: string;
+  contract_type?: string;
+  status?: string;
+}
+
 function WritingNumbersSection({ agentId, tenantId }: { agentId?: string; tenantId?: string }) {
   const { data: carriers } = useCarriers();
   const { data: contracts } = useAgentContracts(agentId);
   const queryClient = useQueryClient();
-  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [edits, setEdits] = useState<Record<string, WritingNumberEdit>>({});
   const [saving, setSaving] = useState(false);
 
   const contractMap = useMemo(() => {
@@ -647,32 +656,51 @@ function WritingNumbersSection({ agentId, tenantId }: { agentId?: string; tenant
     [carriers]
   );
 
+  const updateEdit = (carrierName: string, field: keyof WritingNumberEdit, value: string) => {
+    setEdits((prev) => ({
+      ...prev,
+      [carrierName]: { ...prev[carrierName], [field]: value },
+    }));
+  };
+
   const handleSave = async () => {
     if (!agentId || !tenantId) return;
     setSaving(true);
     let saved = 0;
     try {
-      for (const [carrierName, value] of Object.entries(edits)) {
+      for (const [carrierName, edit] of Object.entries(edits)) {
         const existing = contractMap.get(carrierName);
-        const trimmed = value.trim();
+        const trimmedNumber = (edit.agent_number ?? existing?.agent_number ?? "").trim();
+        const contractType = edit.contract_type ?? existing?.contract_type ?? "Direct Pay";
+        const contractStatus = edit.status ?? existing?.status ?? "active";
 
         if (existing) {
-          if (trimmed !== (existing.agent_number || "")) {
+          const updates: Record<string, any> = {};
+          if (edit.agent_number !== undefined && trimmedNumber !== (existing.agent_number || "")) {
+            updates.agent_number = trimmedNumber || null;
+          }
+          if (edit.contract_type !== undefined && contractType !== existing.contract_type) {
+            updates.contract_type = contractType;
+          }
+          if (edit.status !== undefined && contractStatus !== existing.status) {
+            updates.status = contractStatus;
+          }
+          if (Object.keys(updates).length > 0) {
             const { error } = await supabase
               .from("agent_contracts")
-              .update({ agent_number: trimmed || null } as any)
+              .update(updates as any)
               .eq("id", existing.id);
             if (error) throw error;
             saved++;
           }
-        } else if (trimmed) {
+        } else if (trimmedNumber) {
           const { error } = await supabase.from("agent_contracts").insert({
             tenant_id: tenantId,
             agent_id: agentId,
             carrier: carrierName,
-            agent_number: trimmed,
-            contract_type: "Direct Pay",
-            status: "active",
+            agent_number: trimmedNumber,
+            contract_type: contractType,
+            status: contractStatus,
           } as any);
           if (error) throw error;
           saved++;
@@ -710,24 +738,50 @@ function WritingNumbersSection({ agentId, tenantId }: { agentId?: string; tenant
                 <TableRow>
                   <TableHead>Carrier</TableHead>
                   <TableHead>Writing Number</TableHead>
+                  <TableHead>Contract Type</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {activeCarriers.map((carrier) => {
                   const existing = contractMap.get(carrier.name);
-                  const currentValue = edits[carrier.name] ?? existing?.agent_number ?? "";
+                  const currentNumber = edits[carrier.name]?.agent_number ?? existing?.agent_number ?? "";
+                  const currentType = edits[carrier.name]?.contract_type ?? existing?.contract_type ?? "Direct Pay";
+                  const currentStatus = edits[carrier.name]?.status ?? existing?.status ?? "active";
                   return (
                     <TableRow key={carrier.id}>
                       <TableCell className="font-medium">{carrier.name}</TableCell>
                       <TableCell>
                         <Input
-                          value={currentValue}
-                          onChange={(e) =>
-                            setEdits((prev) => ({ ...prev, [carrier.name]: e.target.value }))
-                          }
+                          value={currentNumber}
+                          onChange={(e) => updateEdit(carrier.name, "agent_number", e.target.value)}
                           placeholder="Enter writing number"
-                          className="h-8 w-48 font-mono text-xs"
+                          className="h-8 w-40 font-mono text-xs"
                         />
+                      </TableCell>
+                      <TableCell>
+                        <Select value={currentType} onValueChange={(v) => updateEdit(carrier.name, "contract_type", v)}>
+                          <SelectTrigger className="h-8 w-32 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {WN_CONTRACT_TYPES.map((ct) => (
+                              <SelectItem key={ct} value={ct}>{ct}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Select value={currentStatus} onValueChange={(v) => updateEdit(carrier.name, "status", v)}>
+                          <SelectTrigger className="h-8 w-28 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {WN_STATUSES.map((s) => (
+                              <SelectItem key={s} value={s}>{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                     </TableRow>
                   );

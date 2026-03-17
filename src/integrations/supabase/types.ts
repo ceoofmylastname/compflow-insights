@@ -209,21 +209,27 @@ export type Database = {
           carrier_id: string
           created_at: string
           id: string
+          is_active: boolean
           name: string
+          product_type: string | null
           type: string | null
         }
         Insert: {
           carrier_id: string
           created_at?: string
           id?: string
+          is_active?: boolean
           name: string
+          product_type?: string | null
           type?: string | null
         }
         Update: {
           carrier_id?: string
           created_at?: string
           id?: string
+          is_active?: boolean
           name?: string
+          product_type?: string | null
           type?: string | null
         }
         Relationships: [
@@ -281,23 +287,38 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          logo_url: string | null
           name: string
+          notes: string | null
+          phone: string | null
+          short_name: string | null
           status: string
           tenant_id: string
+          website: string | null
         }
         Insert: {
           created_at?: string
           id?: string
+          logo_url?: string | null
           name: string
+          notes?: string | null
+          phone?: string | null
+          short_name?: string | null
           status?: string
           tenant_id: string
+          website?: string | null
         }
         Update: {
           created_at?: string
           id?: string
+          logo_url?: string | null
           name?: string
+          notes?: string | null
+          phone?: string | null
+          short_name?: string | null
           status?: string
           tenant_id?: string
+          website?: string | null
         }
         Relationships: [
           {

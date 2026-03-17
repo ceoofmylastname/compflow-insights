@@ -59,6 +59,7 @@ import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents } from "@/hooks/useAgents";
 import { useCarrierProfiles, useCreateCarrierProfile } from "@/hooks/useCarrierProfiles";
+import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -119,6 +120,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
   const { data: agents } = useAgents();
   const { data: carrierProfiles } = useCarrierProfiles();
   const createProfile = useCreateCarrierProfile();
+  const { carriers: carrierOptions } = useCarrierOptions();
   const queryClient = useQueryClient();
 
   /* ---------- wizard state ---------- */
@@ -666,7 +668,13 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
                     value={carrierName}
                     onChange={(e) => setCarrierName(e.target.value)}
                     placeholder="e.g. Mutual of Omaha"
+                    list="import-carrier-options"
                   />
+                  <datalist id="import-carrier-options">
+                    {carrierOptions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
             )}
