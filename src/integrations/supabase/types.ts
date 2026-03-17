@@ -549,48 +549,27 @@ export type Database = {
       tenants: {
         Row: {
           agency_name: string | null
-          cloudflare_hostname_id: string | null
           created_at: string
-          custom_domain: string | null
-          domain_cname_target: string | null
-          domain_status: string | null
-          domain_txt_verification: string | null
-          domain_verified: boolean
           id: string
           logo_url: string | null
           name: string
           primary_color: string | null
-          subdomain: string | null
         }
         Insert: {
           agency_name?: string | null
-          cloudflare_hostname_id?: string | null
           created_at?: string
-          custom_domain?: string | null
-          domain_cname_target?: string | null
-          domain_status?: string | null
-          domain_txt_verification?: string | null
-          domain_verified?: boolean
           id?: string
           logo_url?: string | null
           name: string
           primary_color?: string | null
-          subdomain?: string | null
         }
         Update: {
           agency_name?: string | null
-          cloudflare_hostname_id?: string | null
           created_at?: string
-          custom_domain?: string | null
-          domain_cname_target?: string | null
-          domain_status?: string | null
-          domain_txt_verification?: string | null
-          domain_verified?: boolean
           id?: string
           logo_url?: string | null
           name?: string
           primary_color?: string | null
-          subdomain?: string | null
         }
         Relationships: []
       }
@@ -666,24 +645,7 @@ export type Database = {
         }
         Returns: boolean
       }
-      resolve_tenant_by_domain: {
-        Args: { p_hostname: string }
-        Returns: {
-          id: string
-          name: string
-          agency_name: string | null
-          logo_url: string | null
-          primary_color: string | null
-          subdomain: string | null
-          custom_domain: string | null
-          domain_verified: boolean
-          plan: string | null
-        }[]
-      }
-      snapshot_active_agents: {
-        Args: { p_tenant_id: string }
-        Returns: number
-      }
+      snapshot_active_agents: { Args: { p_tenant_id: string }; Returns: number }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
