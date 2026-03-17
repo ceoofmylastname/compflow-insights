@@ -11,10 +11,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/formatters";
 import { downloadCSV, rowsToCSV } from "@/lib/csv-utils";
 import { Progress } from "@/components/ui/progress";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Download } from "lucide-react";
+import { useFilters } from "@/contexts/FilterContext";
+import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 
 interface PayoutWithPolicy {
   id: string;
@@ -28,16 +29,36 @@ interface PayoutWithPolicy {
     carrier: string | null;
     status: string | null;
     annual_premium: number | null;
+    lead_source: string | null;
   } | null;
 }
 
-function usePayoutsWithPolicies() {
+function usePayoutsWithPolicies(filters: {
+  dateFrom?: string;
+  dateTo?: string;
+  carrier?: string;
+  status?: string;
+  leadSource?: string;
+}) {
   return useQuery({
-    queryKey: ["payoutsWithPolicies"],
+    queryKey: ["payoutsWithPolicies", filters],
     queryFn: async (): Promise<PayoutWithPolicy[]> => {
-      const { data, error } = await supabase
+      const needsInner = !!(filters.dateFrom || filters.dateTo || filters.carrier || filters.status || filters.leadSource);
+      let query = supabase
         .from("commission_payouts")
-        .select("id, agent_id, policy_id, commission_amount, commission_rate, payout_type, policies(application_date, carrier, status, annual_premium)");
+        .select(
+          needsInner
+            ? "id, agent_id, policy_id, commission_amount, commission_rate, payout_type, policies!inner(application_date, carrier, status, annual_premium, lead_source)"
+            : "id, agent_id, policy_id, commission_amount, commission_rate, payout_type, policies(application_date, carrier, status, annual_premium, lead_source)"
+        );
+
+      if (filters.dateFrom) query = query.gte("policies.application_date", filters.dateFrom);
+      if (filters.dateTo) query = query.lte("policies.application_date", filters.dateTo);
+      if (filters.carrier) query = query.eq("policies.carrier", filters.carrier);
+      if (filters.status) query = query.eq("policies.status", filters.status);
+      if (filters.leadSource) query = query.eq("policies.lead_source", filters.leadSource);
+
+      const { data, error } = await query;
       if (error) throw error;
       return (data ?? []) as unknown as PayoutWithPolicy[];
     },
@@ -58,41 +79,40 @@ interface ScoreRow {
 const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
 
 const Scoreboard = () => {
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const { dateFrom, dateTo } = useFilters();
   const [carrier, setCarrier] = useState("");
   const [status, setStatus] = useState("");
+  const [leadSource, setLeadSource] = useState("");
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading: agentsLoading } = useAgents();
-  const { data: payouts, isLoading: payoutsLoading, error, refetch } = usePayoutsWithPolicies();
+  const { data: payouts, isLoading: payoutsLoading, error, refetch } = usePayoutsWithPolicies({
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    carrier: carrier || undefined,
+    status: status || undefined,
+    leadSource: leadSource || undefined,
+  });
 
-  // Derive available carriers from data
-  const carriers = useMemo(() => {
-    if (!payouts) return [];
+  // Unfiltered for dropdown lists
+  const { data: allPayouts } = usePayoutsWithPolicies({});
+
+  const { carriers } = useCarrierOptions();
+
+  const leadSources = useMemo(() => {
+    if (!allPayouts) return [];
     const set = new Set<string>();
-    payouts.forEach((p) => { if (p.policies?.carrier) set.add(p.policies.carrier); });
+    allPayouts.forEach((p) => { if (p.policies?.lead_source) set.add(p.policies.lead_source); });
     return [...set].sort();
-  }, [payouts]);
+  }, [allPayouts]);
 
-  // Filter and aggregate
+  // Aggregate (filtering is now server-side)
   const scoreData = useMemo((): ScoreRow[] => {
     if (!agents || !payouts) return [];
 
-    // Filter payouts by policy fields
-    const filtered = payouts.filter((p) => {
-      const pol = p.policies;
-      if (!pol) return false;
-      if (dateFrom && pol.application_date && pol.application_date < dateFrom) return false;
-      if (dateTo && pol.application_date && pol.application_date > dateTo) return false;
-      if (carrier && pol.carrier !== carrier) return false;
-      if (status && pol.status !== status) return false;
-      return true;
-    });
-
     // Group by agent
     const map = new Map<string, { commission: number; premium: number; policyIds: Set<string> }>();
-    for (const p of filtered) {
+    for (const p of payouts) {
       const existing = map.get(p.agent_id) || { commission: 0, premium: 0, policyIds: new Set<string>() };
       existing.commission += p.commission_amount || 0;
       if (!existing.policyIds.has(p.policy_id)) {
@@ -119,7 +139,7 @@ const Scoreboard = () => {
         };
       })
       .sort((a, b) => b.totalCommission - a.totalCommission);
-  }, [agents, payouts, dateFrom, dateTo, carrier, status]);
+  }, [agents, payouts]);
 
   const rankedData = scoreData.map((row, i) => ({ ...row, rank: i + 1 }));
   const currentRow = rankedData.find((r) => r.agentId === currentAgent?.id);
@@ -167,29 +187,36 @@ const Scoreboard = () => {
     <AppLayout>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">Scoreboard</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Scoreboard</h1>
           <Button variant="outline" size="sm" onClick={handleExport} disabled={rankedData.length === 0}>
             <Download className="h-4 w-4 mr-2" /> Export CSV
           </Button>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" placeholder="From" />
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" placeholder="To" />
+        <div className="card-elevated p-3 flex flex-wrap gap-3 items-center">
           <Select value={carrier} onValueChange={(v) => setCarrier(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Carriers" /></SelectTrigger>
+            <SelectTrigger className="w-44 h-9 text-sm"><SelectValue placeholder="All Carriers" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Carriers</SelectItem>
               {carriers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+            <SelectTrigger className="w-44 h-9 text-sm"><SelectValue placeholder="All Statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
+          {leadSources.length > 0 && (
+            <Select value={leadSource} onValueChange={(v) => setLeadSource(v === "all" ? "" : v)}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="All Sources" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                {leadSources.map((ls) => <SelectItem key={ls} value={ls}>{ls}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {loading ? (

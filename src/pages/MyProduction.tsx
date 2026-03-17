@@ -6,21 +6,21 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { usePolicies, Policy } from "@/hooks/usePolicies";
+import { usePolicies, Policy, getPoliciesArray } from "@/hooks/usePolicies";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
 import { formatCurrency, formatPercent, formatDate } from "@/lib/formatters";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { CSVImportModal } from "@/components/shared/CSVImportModal";
 import { Progress } from "@/components/ui/progress";
+import { useFilters } from "@/contexts/FilterContext";
+import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 
 const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
 
 const MyProduction = () => {
   const { data: currentAgent } = useCurrentAgent();
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const { dateFrom, dateTo } = useFilters();
   const [carrier, setCarrier] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [contractType, setContractType] = useState("");
@@ -35,7 +35,8 @@ const MyProduction = () => {
     contractType: contractType && contractType !== "all" ? contractType : undefined,
   }), [currentAgent?.id, dateFrom, dateTo, carrier, statusFilter, contractType]);
 
-  const { data: policies, isLoading, error, refetch } = usePolicies(policyFilters);
+  const { data: policiesRaw, isLoading, error, refetch } = usePolicies(policyFilters);
+  const policies = getPoliciesArray(policiesRaw);
   const { data: payouts } = useCommissionPayouts({ agentId: currentAgent?.id });
 
   // Build commission map from actual payouts (direct only)
@@ -50,13 +51,9 @@ const MyProduction = () => {
     return map;
   }, [payouts]);
 
-  const carriers = useMemo(() => {
-    const set = new Set((policies ?? []).map((p) => p.carrier).filter(Boolean) as string[]);
-    return Array.from(set).sort();
-  }, [policies]);
+  const { carriers } = useCarrierOptions();
 
   const enriched = useMemo(() => {
-    if (!policies) return [];
     return policies.map((p) => {
       const comm = commissionByPolicy.get(p.id);
       return { ...p, _rate: comm?.rate ?? null, _commission: comm?.amount ?? null };
@@ -65,6 +62,8 @@ const MyProduction = () => {
 
   const totalPremium = enriched.reduce((s, p) => s + (p.annual_premium || 0), 0);
   const totalCommission = enriched.reduce((s, p) => s + (p._commission || 0), 0);
+  const totalRefsCollected = enriched.reduce((s, p) => s + (p.refs_collected || 0), 0);
+  const totalRefsSold = enriched.reduce((s, p) => s + (p.refs_sold || 0), 0);
   const annualGoal = Number(currentAgent?.annual_goal) || 0;
   const goalPercent = annualGoal > 0 ? Math.min(100, (totalCommission / annualGoal) * 100) : 0;
 
@@ -86,49 +85,55 @@ const MyProduction = () => {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-foreground">My Production</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">My Production</h1>
 
         {/* Summary bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">Policies</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Policies</p>
             <p className="text-lg font-bold text-foreground">{enriched.length}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">Total Premium</p>
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total Premium</p>
             <p className="text-lg font-bold text-foreground">{formatCurrency(totalPremium)}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">Direct Commission</p>
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Direct Commission</p>
             <p className="text-lg font-bold text-foreground">{formatCurrency(totalCommission)}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-3 space-y-1">
-            <p className="text-xs text-muted-foreground">Goal Progress</p>
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Goal Progress</p>
             <p className="text-lg font-bold text-foreground">{goalPercent.toFixed(0)}%</p>
-            <Progress value={goalPercent} className="h-1.5" />
+            <Progress value={goalPercent} className="h-2" />
+          </div>
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Refs Collected</p>
+            <p className="text-lg font-bold text-foreground">{totalRefsCollected}</p>
+          </div>
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Refs Sold</p>
+            <p className="text-lg font-bold text-foreground">{totalRefsSold}</p>
           </div>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap gap-3">
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} placeholder="From" className="w-40" />
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} placeholder="To" className="w-40" />
+        <div className="card-elevated p-3 flex flex-wrap gap-3 items-center">
           <Select value={carrier} onValueChange={setCarrier}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Carriers" /></SelectTrigger>
+            <SelectTrigger className="w-44 h-9 text-sm"><SelectValue placeholder="All Carriers" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Carriers</SelectItem>
               {carriers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+            <SelectTrigger className="w-44 h-9 text-sm"><SelectValue placeholder="All Statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={contractType} onValueChange={setContractType}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Types" /></SelectTrigger>
+            <SelectTrigger className="w-40 h-9 text-sm"><SelectValue placeholder="All Types" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="Direct Pay">Direct Pay</SelectItem>

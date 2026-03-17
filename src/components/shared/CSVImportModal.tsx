@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Upload, AlertCircle, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { Upload, AlertCircle, CheckCircle2, AlertTriangle, XCircle, FileSpreadsheet } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
@@ -15,6 +15,7 @@ import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { addDays, isValid, parseISO } from "date-fns";
+import { PolicyImportWizard } from "@/components/import/PolicyImportWizard";
 
 interface CSVImportModalProps {
   open: boolean;
@@ -26,7 +27,7 @@ type Step = "upload" | "preview" | "map" | "validate" | "importing" | "done";
 
 const AGENT_FIELDS = ["first_name", "last_name", "email", "npn", "position", "upline_email", "start_date", "annual_goal"];
 const COMMISSION_FIELDS = ["carrier", "product", "position", "rate", "start_date"];
-const POLICY_FIELDS = ["policy_number", "application_date", "writing_agent_id", "client_name", "carrier", "product", "annual_premium", "status", "contract_type"];
+const POLICY_FIELDS = ["policy_number", "application_date", "writing_agent_id", "client_name", "client_phone", "client_dob", "carrier", "product", "annual_premium", "status", "contract_type", "lead_source", "effective_date", "notes", "refs_collected", "refs_sold"];
 
 interface UnresolvedRow {
   row: number;
@@ -42,6 +43,7 @@ interface SkippedRow {
 
 export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModalProps) {
   const [tab, setTab] = useState(defaultTab || "agents");
+  const [policyWizardOpen, setPolicyWizardOpen] = useState(false);
   const [step, setStep] = useState<Step>("upload");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
@@ -179,6 +181,17 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
             if (npnMatch) {
               record._resolved_agent_id = npnMatch.id;
             } else {
+              // Try agent_contracts: match by carrier + agent_number
+              const { data: contractMatch } = await supabase
+                .from("agent_contracts")
+                .select("agent_id")
+                .eq("carrier", record.carrier)
+                .eq("agent_number", record.writing_agent_id)
+                .maybeSingle();
+
+              if (contractMatch) {
+                record._resolved_agent_id = contractMatch.agent_id;
+              } else {
               // Skip unresolved rows
               unresolved.push({
                 row: idx + 2,
@@ -191,6 +204,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
                 record,
               });
               continue; // Don't add to valid
+            }
             }
           }
         }
@@ -274,7 +288,17 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
               resolvedAgentId = (alias as any).agent_id;
             } else if (agents) {
               const match = agents.find((a) => a.npn === r.writing_agent_id);
-              if (match) resolvedAgentId = match.id;
+              if (match) {
+                resolvedAgentId = match.id;
+              } else {
+                const { data: contractMatch } = await supabase
+                  .from("agent_contracts")
+                  .select("agent_id")
+                  .eq("carrier", r.carrier)
+                  .eq("agent_number", r.writing_agent_id)
+                  .maybeSingle();
+                if (contractMatch) resolvedAgentId = contractMatch.agent_id;
+              }
             }
           }
 
@@ -291,12 +315,19 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
                 writing_agent_id: r.writing_agent_id || null,
                 resolved_agent_id: resolvedAgentId,
                 client_name: r.client_name,
+                client_phone: r.client_phone || null,
+                client_dob: r.client_dob || null,
                 carrier: r.carrier || null,
                 product: r.product || null,
                 annual_premium: premium,
                 status,
                 contract_type: r.contract_type || null,
-              },
+                lead_source: r.lead_source || null,
+                effective_date: r.effective_date || null,
+                notes: r.notes || null,
+                refs_collected: r.refs_collected ? parseInt(r.refs_collected, 10) : null,
+                refs_sold: r.refs_sold ? parseInt(r.refs_sold, 10) : null,
+              } as any,
               { onConflict: "policy_number,tenant_id", ignoreDuplicates: false }
             )
             .select()
@@ -355,6 +386,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -369,7 +401,25 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
           </TabsList>
 
           <TabsContent value={tab} className="space-y-4 mt-4">
-            {step === "upload" && (
+            {step === "upload" && tab === "policies" && (
+              <div className="border-2 border-dashed border-border rounded-lg p-12 text-center space-y-4">
+                <FileSpreadsheet className="mx-auto h-10 w-10 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  Use the new Policy Import Wizard for CSV and XLSX imports with carrier auto-detection,
+                  column mapping, and agent resolution.
+                </p>
+                <Button
+                  onClick={() => {
+                    onOpenChange(false);
+                    setTimeout(() => setPolicyWizardOpen(true), 150);
+                  }}
+                >
+                  Open Policy Import Wizard
+                </Button>
+              </div>
+            )}
+
+            {step === "upload" && tab !== "policies" && (
               <div
                 className="border-2 border-dashed border-border rounded-lg p-12 text-center cursor-pointer hover:border-primary transition-colors"
                 onDragOver={(e) => e.preventDefault()}
@@ -602,5 +652,8 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
         </Tabs>
       </DialogContent>
     </Dialog>
+
+    <PolicyImportWizard open={policyWizardOpen} onOpenChange={setPolicyWizardOpen} />
+    </>
   );
 }

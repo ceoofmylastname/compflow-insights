@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/use-auth";
+import { FilterProvider } from "@/contexts/FilterContext";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -18,6 +19,7 @@ import Scoreboard from "./pages/Scoreboard";
 import AgentRoster from "./pages/AgentRoster";
 import CommissionLevels from "./pages/CommissionLevels";
 import Settings from "./pages/Settings";
+import Carriers from "./pages/Carriers";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -30,6 +32,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <FilterProvider>
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
@@ -45,8 +48,10 @@ const App = () => (
             <Route path="/agent-roster" element={<ProtectedRoute><AgentRoster /></ProtectedRoute>} />
             <Route path="/commission-levels" element={<ProtectedRoute><CommissionLevels /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/carriers" element={<ProtectedRoute><Carriers /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </FilterProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

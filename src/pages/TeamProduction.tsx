@@ -1,48 +1,62 @@
 import { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { DataTable, Column } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { usePolicies, Policy } from "@/hooks/usePolicies";
+import { usePolicies, Policy, isPaginatedResult, getPoliciesArray } from "@/hooks/usePolicies";
 import { useAgents } from "@/hooks/useAgents";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
 import { formatCurrency, formatDate } from "@/lib/formatters";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useFilters } from "@/contexts/FilterContext";
+import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 
 const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
+const PAGE_SIZE = 50;
 
 const TeamProduction = () => {
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents } = useAgents();
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const { dateFrom, dateTo } = useFilters();
   const [carrier, setCarrier] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [contractTypeFilter, setContractTypeFilter] = useState("");
+  const [leadSourceFilter, setLeadSourceFilter] = useState("");
+  const [page, setPage] = useState(1);
 
-  const { data: allPolicies, isLoading, error, refetch } = usePolicies({
+  const handleFilterChange = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    setPage(1);
+  };
+
+  const { data: result, isLoading, error, refetch } = usePolicies({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-    carrier: carrier || undefined,
-    status: statusFilter ? [statusFilter] : undefined,
+    carrier: carrier && carrier !== "all" ? carrier : undefined,
+    status: statusFilter && statusFilter !== "all" ? [statusFilter] : undefined,
+    agentId: agentFilter && agentFilter !== "all" ? agentFilter : undefined,
+    contractType: contractTypeFilter && contractTypeFilter !== "all" ? contractTypeFilter : undefined,
+    leadSource: leadSourceFilter && leadSourceFilter !== "all" ? leadSourceFilter : undefined,
+    excludeAgentId: currentAgent?.id,
+    page,
+    pageSize: PAGE_SIZE,
   });
+
+  const policies = isPaginatedResult(result) ? result.data : getPoliciesArray(result);
+  const totalCount = isPaginatedResult(result) ? result.count : policies.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const { data: payouts } = useCommissionPayouts();
 
-  // Exclude current agent's own policies
-  const downlinePolicies = useMemo(() => {
-    if (!allPolicies || !currentAgent) return [];
-    return allPolicies.filter((p) => p.resolved_agent_id !== currentAgent.id);
-  }, [allPolicies, currentAgent]);
-
-  const filteredPolicies = useMemo(() => {
-    if (!agentFilter) return downlinePolicies;
-    return downlinePolicies.filter((p) => p.resolved_agent_id === agentFilter);
-  }, [downlinePolicies, agentFilter]);
+  // Also fetch unpaginated for carrier list
+  const { data: allPoliciesRaw } = usePolicies({ excludeAgentId: currentAgent?.id });
+  const allDownlinePolicies = getPoliciesArray(allPoliciesRaw);
 
   const downlineAgents = useMemo(() => {
     if (!agents || !currentAgent) return [];
@@ -65,59 +79,59 @@ const TeamProduction = () => {
   }, [payouts]);
 
   const enriched = useMemo(() => {
-    return filteredPolicies.map((p) => ({
+    return policies.map((p) => ({
       ...p,
       _agentName: getAgentName(p.resolved_agent_id),
       _commission: commissionByPolicy.get(p.id) || 0,
     }));
-  }, [filteredPolicies, agents, commissionByPolicy]);
+  }, [policies, agents, commissionByPolicy]);
 
-  const totalPolicies = enriched.length;
+  const totalPolicies = totalCount;
   const totalPremium = enriched.reduce((s, p) => s + (p.annual_premium || 0), 0);
   const totalCommission = enriched.reduce((s, p) => s + p._commission, 0);
+  const totalRefsCollected = enriched.reduce((s, p) => s + (p.refs_collected || 0), 0);
+  const totalRefsSold = enriched.reduce((s, p) => s + (p.refs_sold || 0), 0);
 
-  // Derive carriers from data
-  const carriers = useMemo(() => {
-    return [...new Set(downlinePolicies.map((p) => p.carrier).filter(Boolean))].sort() as string[];
-  }, [downlinePolicies]);
+  const { carriers } = useCarrierOptions();
 
-  const columns: Column<(typeof enriched)[number]>[] = [
-    { key: "_agentName", label: "Writing Agent" },
-    { key: "client_name", label: "Client Name" },
-    { key: "carrier", label: "Carrier" },
-    { key: "product", label: "Product" },
-    { key: "annual_premium", label: "Annual Premium", render: (r) => formatCurrency(r.annual_premium), getValue: (r) => r.annual_premium },
-    { key: "application_date", label: "Application Date", render: (r) => formatDate(r.application_date) },
-    { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
-    { key: "contract_type", label: "Contract Type", render: (r) => r.contract_type || "--" },
-    { key: "_commission", label: "Commission", render: (r) => formatCurrency(r._commission), getValue: (r) => r._commission },
-  ];
+  const leadSources = useMemo(() => {
+    return [...new Set(allDownlinePolicies.map((p) => p.lead_source).filter(Boolean))].sort() as string[];
+  }, [allDownlinePolicies]);
 
   if (error) return <AppLayout><ErrorBanner message={(error as Error).message} onRetry={refetch} /></AppLayout>;
+
+  const fromItem = (page - 1) * PAGE_SIZE + 1;
+  const toItem = Math.min(page * PAGE_SIZE, totalCount);
 
   return (
     <AppLayout>
       <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-foreground">Team Production</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Team Production</h1>
 
-        <div className="flex flex-wrap gap-3">
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
-          <Select value={carrier} onValueChange={(v) => setCarrier(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Carriers" /></SelectTrigger>
+        <div className="card-elevated p-3 flex flex-wrap gap-3">
+          <Select value={carrier} onValueChange={handleFilterChange((v: string) => setCarrier(v === "all" ? "" : v))}>
+            <SelectTrigger className="w-44 h-9 text-sm"><SelectValue placeholder="All Carriers" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Carriers</SelectItem>
               {carriers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+          <Select value={statusFilter} onValueChange={handleFilterChange((v: string) => setStatusFilter(v === "all" ? "" : v))}>
+            <SelectTrigger className="w-44 h-9 text-sm"><SelectValue placeholder="All Statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={agentFilter} onValueChange={(v) => setAgentFilter(v === "all" ? "" : v)}>
+          <Select value={contractTypeFilter} onValueChange={handleFilterChange((v: string) => setContractTypeFilter(v === "all" ? "" : v))}>
+            <SelectTrigger className="w-36"><SelectValue placeholder="All Contracts" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="Direct Pay">Direct Pay</SelectItem>
+              <SelectItem value="LOA">LOA</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={agentFilter} onValueChange={handleFilterChange((v: string) => setAgentFilter(v === "all" ? "" : v))}>
             <SelectTrigger className="w-48"><SelectValue placeholder="All Agents" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Agents</SelectItem>
@@ -126,15 +140,28 @@ const TeamProduction = () => {
               ))}
             </SelectContent>
           </Select>
+          {leadSources.length > 0 && (
+            <Select value={leadSourceFilter} onValueChange={handleFilterChange((v: string) => setLeadSourceFilter(v === "all" ? "" : v))}>
+              <SelectTrigger className="w-40"><SelectValue placeholder="All Sources" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                {leadSources.map((ls) => <SelectItem key={ls} value={ls}>{ls}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {/* Summary bar */}
-        <div className="flex gap-6 rounded-lg border border-border bg-muted/50 p-3 text-sm font-medium">
+        <div className="card-elevated p-4 flex gap-6 text-sm font-medium flex-wrap">
           <span>{totalPolicies} policies</span>
           <span className="text-muted-foreground">|</span>
           <span>{formatCurrency(totalPremium)} premium</span>
           <span className="text-muted-foreground">|</span>
           <span>{formatCurrency(totalCommission)} commission</span>
+          <span className="text-muted-foreground">|</span>
+          <span>{totalRefsCollected} refs collected</span>
+          <span className="text-muted-foreground">|</span>
+          <span>{totalRefsSold} refs sold</span>
         </div>
 
         {isLoading ? (
@@ -142,12 +169,68 @@ const TeamProduction = () => {
         ) : enriched.length === 0 ? (
           <EmptyState title="No team production yet" description="Your downline agents' policies will appear here." />
         ) : (
-          <DataTable
-            columns={columns}
-            data={enriched}
-            pageSize={25}
-            exportFilename="team-production.csv"
-          />
+          <>
+            <div className="card-elevated overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-b-2 border-border bg-gradient-to-r from-muted/60 to-muted/30 hover:bg-transparent">
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Writing Agent</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Client Name</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Carrier</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Product</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Annual Premium</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Application Date</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Status</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Contract Type</TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">Commission</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {enriched.map((p) => (
+                    <TableRow key={p.id} className="border-b border-border/50 table-row-hover">
+                      <TableCell className="text-sm py-3">{p._agentName}</TableCell>
+                      <TableCell className="text-sm py-3">{p.client_name}</TableCell>
+                      <TableCell className="text-sm py-3">{p.carrier}</TableCell>
+                      <TableCell className="text-sm py-3">{p.product}</TableCell>
+                      <TableCell className="text-sm py-3">{formatCurrency(p.annual_premium)}</TableCell>
+                      <TableCell className="text-sm py-3">{formatDate(p.application_date)}</TableCell>
+                      <TableCell className="py-3"><StatusBadge status={p.status} /></TableCell>
+                      <TableCell className="text-sm py-3">{p.contract_type || "--"}</TableCell>
+                      <TableCell className="text-sm py-3">{formatCurrency(p._commission)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Pagination controls */}
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>
+                Showing {fromItem}–{toItem} of {totalCount} results
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                </Button>
+                <span className="text-foreground font-medium">
+                  Page {page} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </AppLayout>

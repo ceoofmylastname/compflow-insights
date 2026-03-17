@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -6,21 +6,25 @@ import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents, Agent } from "@/hooks/useAgents";
-import { usePolicies } from "@/hooks/usePolicies";
+import { usePolicies, getPoliciesArray } from "@/hooks/usePolicies";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
+import { useAgentContracts, useCreateAgentContract, useDeleteAgentContract } from "@/hooks/useAgentContracts";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/formatters";
+import { formatDistanceToNow } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, UserPlus, Copy } from "lucide-react";
+import { MoreHorizontal, UserPlus, Copy, Plus, Trash2 } from "lucide-react";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { OrgTree } from "@/components/agents/OrgTree";
 
 const AgentRoster = () => {
   const [viewMode, setViewMode] = useState<"table" | "orgchart">("table");
@@ -33,7 +37,8 @@ const AgentRoster = () => {
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
-  const { data: policies } = usePolicies({ status: ["Active"] });
+  const { data: policiesRaw } = usePolicies({ status: ["Active"] });
+  const policies = getPoliciesArray(policiesRaw);
   const { data: payouts } = useCommissionPayouts({ dateFrom: `${new Date().getFullYear()}-01-01T00:00:00Z` });
   const queryClient = useQueryClient();
 
@@ -66,7 +71,7 @@ const AgentRoster = () => {
   };
 
   const getAgentStats = (agentId: string) => {
-    const activePrem = (policies ?? []).filter((p) => p.resolved_agent_id === agentId).reduce((s, p) => s + (p.annual_premium || 0), 0);
+    const activePrem = policies.filter((p) => p.resolved_agent_id === agentId).reduce((s, p) => s + (p.annual_premium || 0), 0);
     const commYTD = (payouts ?? []).filter((p) => p.agent_id === agentId).reduce((s, p) => s + (p.commission_amount || 0), 0);
     const directReports = (agents ?? []).filter((a) => {
       const agent = agents?.find((x) => x.id === agentId);
@@ -122,6 +127,14 @@ const AgentRoster = () => {
     { key: "upline_email", label: "Upline", render: (r) => getUplineName(r.upline_email) },
     { key: "contract_type", label: "Contract Type" },
     { key: "start_date", label: "Start Date", render: (r) => formatDate(r.start_date) },
+    {
+      key: "last_login_at",
+      label: "Last Login",
+      render: (r) =>
+        r.last_login_at
+          ? formatDistanceToNow(new Date(r.last_login_at), { addSuffix: true })
+          : "--",
+    },
     {
       key: "annual_goal",
       label: "Annual Goal",
@@ -190,44 +203,13 @@ const AgentRoster = () => {
     },
   ];
 
-  // Org chart tree building
-  const buildTree = useCallback((rootEmail: string): (Agent & { children: any[] })[] => {
-    if (!agents) return [];
-    const children = agents.filter((a) => a.upline_email === rootEmail);
-    return children.map((c) => ({ ...c, children: buildTree(c.email) }));
-  }, [agents]);
-
-  const renderOrgNode = (agent: Agent & { children: any[] }, depth: number = 0) => {
-    const initials = `${agent.first_name[0]}${agent.last_name[0]}`.toUpperCase();
-    return (
-      <div key={agent.id} className="flex flex-col items-center">
-        <div className="flex flex-col items-center cursor-pointer" onClick={() => setProfileAgent(agent)}>
-          <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
-            {initials}
-          </div>
-          <p className="text-xs font-medium text-foreground mt-1">{agent.first_name} {agent.last_name}</p>
-          <p className="text-[10px] text-muted-foreground">{agent.position || "Agent"}</p>
-        </div>
-        {agent.children.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-border">
-            <div className="flex gap-6 flex-wrap justify-center">
-              {agent.children.map((c: any) => renderOrgNode(c, depth + 1))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   if (error) return <AppLayout><ErrorBanner message={(error as Error).message} onRetry={refetch} /></AppLayout>;
-
-  const orgTree = currentAgent ? buildTree(currentAgent.email) : [];
 
   return (
     <AppLayout>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">Agent Roster</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Agent Roster</h1>
           <div className="flex gap-2">
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
               <TabsList>
@@ -235,16 +217,17 @@ const AgentRoster = () => {
                 <TabsTrigger value="orgchart">Org Chart</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button size="sm" onClick={() => setInviteOpen(true)}>
+            <Button size="sm" className="btn-primary-elevated" onClick={() => setInviteOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" /> Invite Agent
             </Button>
           </div>
         </div>
 
-        {viewMode === "table" ? (
-          <>
-            <div className="flex flex-wrap gap-3">
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email..." className="w-64" />
+        {/* Search — shared between table and org chart views */}
+        <div className="card-elevated p-3 flex flex-wrap gap-3">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email..." className="w-64" />
+          {viewMode === "table" && (
+            <>
               <Select value={positionFilter} onValueChange={setPositionFilter}>
                 <SelectTrigger className="w-40"><SelectValue placeholder="All Positions" /></SelectTrigger>
                 <SelectContent>
@@ -260,8 +243,12 @@ const AgentRoster = () => {
                   <SelectItem value="LOA">LOA</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </>
+          )}
+        </div>
 
+        {viewMode === "table" ? (
+          <>
             {isLoading ? (
               <SkeletonTable columns={9} />
             ) : filtered.length === 0 ? (
@@ -271,33 +258,19 @@ const AgentRoster = () => {
             )}
           </>
         ) : (
-          <div className="overflow-auto rounded-lg border border-border bg-card p-8 min-h-[400px]">
-            {currentAgent && (
-              <div className="flex flex-col items-center">
-                <div className="flex flex-col items-center cursor-pointer" onClick={() => setProfileAgent(currentAgent)}>
-                  <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground">
-                    {currentAgent.first_name[0]}{currentAgent.last_name[0]}
-                  </div>
-                  <p className="text-sm font-semibold text-foreground mt-1">{currentAgent.first_name} {currentAgent.last_name}</p>
-                  <p className="text-xs text-muted-foreground">{currentAgent.position || "Owner"}</p>
-                </div>
-                {orgTree.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-border">
-                    <div className="flex gap-8 flex-wrap justify-center">
-                      {orgTree.map((c) => renderOrgNode(c))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <OrgTree
+            agents={agents ?? []}
+            currentAgentEmail={currentAgent?.email ?? ""}
+            onSelectAgent={setProfileAgent}
+            searchQuery={search}
+          />
         )}
       </div>
 
       <InviteAgentModal open={inviteOpen} onOpenChange={setInviteOpen} />
 
       <Sheet open={!!profileAgent} onOpenChange={(v) => !v && setProfileAgent(null)}>
-        <SheetContent>
+        <SheetContent className="overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Agent Profile</SheetTitle>
           </SheetHeader>
@@ -314,19 +287,33 @@ const AgentRoster = () => {
                     <p className="text-sm text-muted-foreground">{profileAgent.email}</p>
                   </div>
                 </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Position</span><span>{profileAgent.position || "--"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">NPN</span><span>{profileAgent.npn || "--"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Contract Type</span><span>{profileAgent.contract_type || "--"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Start Date</span><span>{formatDate(profileAgent.start_date)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Annual Goal</span><span>{formatCurrency(Number(profileAgent.annual_goal))}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Upline</span><span>{getUplineName(profileAgent.upline_email)}</span></div>
-                </div>
-                <div className="border-t border-border pt-4 space-y-2">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Active Premium</span><span className="font-semibold">{formatCurrency(stats.activePrem)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Commission YTD</span><span className="font-semibold">{formatCurrency(stats.commYTD)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Direct Reports</span><span className="font-semibold">{stats.directReports}</span></div>
-                </div>
+
+                <Tabs defaultValue="details">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
+                    <TabsTrigger value="contracts" className="flex-1">Contracts</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="details" className="space-y-4 mt-3">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Position</span><span>{profileAgent.position || "--"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">NPN</span><span>{profileAgent.npn || "--"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Contract Type</span><span>{profileAgent.contract_type || "--"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Start Date</span><span>{formatDate(profileAgent.start_date)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Annual Goal</span><span>{formatCurrency(Number(profileAgent.annual_goal))}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Upline</span><span>{getUplineName(profileAgent.upline_email)}</span></div>
+                    </div>
+                    <div className="border-t border-border pt-4 space-y-2">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Active Premium</span><span className="font-semibold">{formatCurrency(stats.activePrem)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Commission YTD</span><span className="font-semibold">{formatCurrency(stats.commYTD)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Direct Reports</span><span className="font-semibold">{stats.directReports}</span></div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="contracts" className="mt-3">
+                    <AgentContractsTab agentId={profileAgent.id} isOwner={isOwner} />
+                  </TabsContent>
+                </Tabs>
               </div>
             );
           })()}
@@ -335,5 +322,128 @@ const AgentRoster = () => {
     </AppLayout>
   );
 };
+
+function AgentContractsTab({ agentId, isOwner }: { agentId: string; isOwner: boolean }) {
+  const { data: contracts, isLoading } = useAgentContracts(agentId);
+  const createContract = useCreateAgentContract();
+  const deleteContract = useDeleteAgentContract();
+
+  const [adding, setAdding] = useState(false);
+  const [carrier, setCarrier] = useState("");
+  const [agentNumber, setAgentNumber] = useState("");
+  const [contractType, setContractType] = useState("Direct Pay");
+  const [contractStatus, setContractStatus] = useState("Active");
+  const [startDate, setStartDate] = useState("");
+
+  const handleAdd = () => {
+    if (!carrier.trim()) return;
+    createContract.mutate({
+      agent_id: agentId,
+      carrier: carrier.trim(),
+      agent_number: agentNumber.trim() || undefined,
+      contract_type: contractType,
+      status: contractStatus,
+      start_date: startDate || undefined,
+    }, {
+      onSuccess: () => {
+        setAdding(false);
+        setCarrier("");
+        setAgentNumber("");
+        setContractType("Direct Pay");
+        setContractStatus("Active");
+        setStartDate("");
+      },
+    });
+  };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading contracts...</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {isOwner && !adding && (
+        <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add Contract
+        </Button>
+      )}
+
+      {adding && (
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <div><Label className="text-xs">Carrier</Label><Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="e.g. Mutual of Omaha" className="h-8 text-sm" /></div>
+          <div><Label className="text-xs">Agent Number</Label><Input value={agentNumber} onChange={(e) => setAgentNumber(e.target.value)} placeholder="Optional" className="h-8 text-sm" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Type</Label>
+              <Select value={contractType} onValueChange={setContractType}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Direct Pay">Direct Pay</SelectItem>
+                  <SelectItem value="LOA">LOA</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={contractStatus} onValueChange={setContractStatus}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Pending">Pending</SelectItem>
+                  <SelectItem value="Terminated">Terminated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div><Label className="text-xs">Start Date</Label><Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8 text-sm" /></div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleAdd} disabled={createContract.isPending || !carrier.trim()}>
+              {createContract.isPending ? "Saving..." : "Save"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setAdding(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {(!contracts || contracts.length === 0) ? (
+        <p className="text-sm text-muted-foreground">No carrier contracts on file.</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="text-xs">Carrier</TableHead>
+              <TableHead className="text-xs">Agent #</TableHead>
+              <TableHead className="text-xs">Type</TableHead>
+              <TableHead className="text-xs">Status</TableHead>
+              {isOwner && <TableHead className="text-xs w-10"></TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {contracts.map((c) => (
+              <TableRow key={c.id}>
+                <TableCell className="text-xs">{c.carrier}</TableCell>
+                <TableCell className="text-xs font-mono">{c.agent_number || "--"}</TableCell>
+                <TableCell className="text-xs">{c.contract_type || "--"}</TableCell>
+                <TableCell className="text-xs">{c.status || "--"}</TableCell>
+                {isOwner && (
+                  <TableCell>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onClick={() => deleteContract.mutate(c.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+}
 
 export default AgentRoster;

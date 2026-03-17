@@ -27,6 +27,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+
+        if (_event === "SIGNED_IN" && session?.user) {
+          supabase
+            .from("agents")
+            .update({ last_login_at: new Date().toISOString() })
+            .eq("auth_user_id", session.user.id)
+            .then(() => {});
+        }
       }
     );
 

@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { downloadCSV } from "@/lib/csv-utils";
+import { cn } from "@/lib/utils";
 
 export interface Column<T> {
   key: string;
@@ -87,7 +88,7 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {exportFilename && (
         <div className="flex justify-end">
           <Button variant="outline" size="sm" onClick={handleExport}>
@@ -95,19 +96,22 @@ export function DataTable<T extends Record<string, any>>({
           </Button>
         </div>
       )}
-      <div className="overflow-x-auto rounded-lg border border-border">
+      <div className="card-elevated overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50">
+            <TableRow className="border-b-2 border-border bg-gradient-to-r from-muted/60 to-muted/30 hover:bg-transparent">
               {columns.map((col) => (
-                <TableHead key={col.key} className="whitespace-nowrap">
+                <TableHead
+                  key={col.key}
+                  className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10"
+                >
                   {col.sortable !== false ? (
                     <button
-                      className="flex items-center gap-1 hover:text-foreground"
+                      className="flex items-center gap-1.5 hover:text-foreground transition-colors"
                       onClick={() => toggleSort(col.key)}
                     >
                       {col.label}
-                      <ArrowUpDown className="h-3 w-3" />
+                      <ArrowUpDown className="h-3 w-3 opacity-50" />
                     </button>
                   ) : (
                     col.label
@@ -120,11 +124,16 @@ export function DataTable<T extends Record<string, any>>({
             {paged.map((row, i) => (
               <TableRow
                 key={i}
-                className={`${onRowClick ? "cursor-pointer" : ""} ${rowClassName?.(row) || ""}`}
+                className={cn(
+                  "border-b border-border/50 table-row-hover",
+                  i % 2 === 1 && "bg-muted/20",
+                  onRowClick && "cursor-pointer",
+                  rowClassName?.(row)
+                )}
                 onClick={() => onRowClick?.(row)}
               >
                 {columns.map((col) => (
-                  <TableCell key={col.key} className="whitespace-nowrap">
+                  <TableCell key={col.key} className="whitespace-nowrap text-sm py-3">
                     {col.render ? col.render(row) : (row[col.key] ?? "--")}
                   </TableCell>
                 ))}
@@ -134,7 +143,7 @@ export function DataTable<T extends Record<string, any>>({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="text-center text-muted-foreground py-8"
+                  className="text-center text-muted-foreground py-12"
                 >
                   No data found
                 </TableCell>

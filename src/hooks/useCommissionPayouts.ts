@@ -21,6 +21,9 @@ export interface PayoutFilters {
   policyId?: string;
   dateFrom?: string;
   dateTo?: string;
+  carrier?: string;
+  status?: string;
+  leadSource?: string;
 }
 
 export function useCommissionPayouts(filters: PayoutFilters = {}) {
@@ -29,7 +32,12 @@ export function useCommissionPayouts(filters: PayoutFilters = {}) {
   return useQuery({
     queryKey: ["commissionPayouts", filters],
     queryFn: async (): Promise<CommissionPayout[]> => {
-      let query = supabase.from("commission_payouts").select("*");
+      const needsPolicyJoin = !!(filters.carrier || filters.status || filters.leadSource);
+      let query = supabase.from("commission_payouts").select(
+        needsPolicyJoin
+          ? "*, policies!inner(carrier, status, lead_source)"
+          : "*"
+      );
 
       if (filters.agentId) {
         query = query.eq("agent_id", filters.agentId);
@@ -42,6 +50,15 @@ export function useCommissionPayouts(filters: PayoutFilters = {}) {
       }
       if (filters.dateTo) {
         query = query.lte("calculated_at", filters.dateTo);
+      }
+      if (filters.carrier) {
+        query = query.eq("policies.carrier", filters.carrier);
+      }
+      if (filters.status) {
+        query = query.eq("policies.status", filters.status);
+      }
+      if (filters.leadSource) {
+        query = query.eq("policies.lead_source", filters.leadSource);
       }
 
       const { data, error } = await query;
