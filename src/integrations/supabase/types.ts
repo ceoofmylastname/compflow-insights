@@ -549,27 +549,48 @@ export type Database = {
       tenants: {
         Row: {
           agency_name: string | null
+          cloudflare_hostname_id: string | null
           created_at: string
+          custom_domain: string | null
+          domain_status: string
+          domain_txt_verification: string | null
+          domain_verified: boolean
           id: string
           logo_url: string | null
           name: string
+          plan: string | null
           primary_color: string | null
+          subdomain: string | null
         }
         Insert: {
           agency_name?: string | null
+          cloudflare_hostname_id?: string | null
           created_at?: string
+          custom_domain?: string | null
+          domain_status?: string
+          domain_txt_verification?: string | null
+          domain_verified?: boolean
           id?: string
           logo_url?: string | null
           name: string
+          plan?: string | null
           primary_color?: string | null
+          subdomain?: string | null
         }
         Update: {
           agency_name?: string | null
+          cloudflare_hostname_id?: string | null
           created_at?: string
+          custom_domain?: string | null
+          domain_status?: string
+          domain_txt_verification?: string | null
+          domain_verified?: boolean
           id?: string
           logo_url?: string | null
           name?: string
+          plan?: string | null
           primary_color?: string | null
+          subdomain?: string | null
         }
         Relationships: []
       }
@@ -632,6 +653,10 @@ export type Database = {
     }
     Functions: {
       flag_chargeback_risk: { Args: never; Returns: undefined }
+      get_agent_tenant_id_secure: {
+        Args: { _user_id: string }
+        Returns: string
+      }
       get_current_agent_email: { Args: never; Returns: string }
       get_current_agent_tenant_id: { Args: never; Returns: string }
       get_downline_agent_ids: {
@@ -644,6 +669,21 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      is_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
+      resolve_tenant_by_domain: {
+        Args: { p_hostname: string }
+        Returns: {
+          agency_name: string
+          custom_domain: string
+          domain_verified: boolean
+          id: string
+          logo_url: string
+          name: string
+          plan: string
+          primary_color: string
+          subdomain: string
+        }[]
       }
       snapshot_active_agents: { Args: { p_tenant_id: string }; Returns: number }
     }
