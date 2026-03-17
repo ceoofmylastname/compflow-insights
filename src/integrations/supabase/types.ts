@@ -552,13 +552,13 @@ export type Database = {
           cloudflare_hostname_id: string | null
           created_at: string
           custom_domain: string | null
-          domain_cname_target: string | null
-          domain_status: string | null
+          domain_status: string
           domain_txt_verification: string | null
           domain_verified: boolean
           id: string
           logo_url: string | null
           name: string
+          plan: string | null
           primary_color: string | null
           subdomain: string | null
         }
@@ -567,13 +567,13 @@ export type Database = {
           cloudflare_hostname_id?: string | null
           created_at?: string
           custom_domain?: string | null
-          domain_cname_target?: string | null
-          domain_status?: string | null
+          domain_status?: string
           domain_txt_verification?: string | null
           domain_verified?: boolean
           id?: string
           logo_url?: string | null
           name: string
+          plan?: string | null
           primary_color?: string | null
           subdomain?: string | null
         }
@@ -582,13 +582,13 @@ export type Database = {
           cloudflare_hostname_id?: string | null
           created_at?: string
           custom_domain?: string | null
-          domain_cname_target?: string | null
-          domain_status?: string | null
+          domain_status?: string
           domain_txt_verification?: string | null
           domain_verified?: boolean
           id?: string
           logo_url?: string | null
           name?: string
+          plan?: string | null
           primary_color?: string | null
           subdomain?: string | null
         }
@@ -653,6 +653,10 @@ export type Database = {
     }
     Functions: {
       flag_chargeback_risk: { Args: never; Returns: undefined }
+      get_agent_tenant_id_secure: {
+        Args: { _user_id: string }
+        Returns: string
+      }
       get_current_agent_email: { Args: never; Returns: string }
       get_current_agent_tenant_id: { Args: never; Returns: string }
       get_downline_agent_ids: {
@@ -666,24 +670,22 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
       resolve_tenant_by_domain: {
         Args: { p_hostname: string }
         Returns: {
-          id: string
-          name: string
-          agency_name: string | null
-          logo_url: string | null
-          primary_color: string | null
-          subdomain: string | null
-          custom_domain: string | null
+          agency_name: string
+          custom_domain: string
           domain_verified: boolean
-          plan: string | null
+          id: string
+          logo_url: string
+          name: string
+          plan: string
+          primary_color: string
+          subdomain: string
         }[]
       }
-      snapshot_active_agents: {
-        Args: { p_tenant_id: string }
-        Returns: number
-      }
+      snapshot_active_agents: { Args: { p_tenant_id: string }; Returns: number }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
