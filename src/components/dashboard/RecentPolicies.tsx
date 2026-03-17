@@ -1,4 +1,4 @@
-import { usePolicies } from "@/hooks/usePolicies";
+import { usePolicies, getPoliciesArray } from "@/hooks/usePolicies";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/table";
 
 export function RecentPolicies() {
-  const { data: policies, isLoading, error, refetch } = usePolicies({ limit: 5 });
+  const { data: result, isLoading, error, refetch } = usePolicies({ limit: 5 });
+  const policies = getPoliciesArray(result);
 
   if (error) return <ErrorBanner message={(error as Error).message} onRetry={refetch} />;
 

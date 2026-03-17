@@ -501,7 +501,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
                       client_name: m.client_name?.trim(),
                       carrier: m.carrier?.trim(),
                       product: m.product?.trim(),
-                      annual_premium: premium,
+                      annual_premium: premiumToUpsert,
                       agent_email: agent?.email || "",
                       application_date: m.application_date,
                       status,

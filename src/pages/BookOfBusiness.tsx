@@ -158,7 +158,7 @@ const BookOfBusiness = () => {
           <div className="flex items-center gap-1.5">
             {statusEl}
             {hasRisk && (
-              <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" title="Chargeback risk" />
+              <span title="Chargeback risk"><AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" /></span>
             )}
           </div>
         );

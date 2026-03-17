@@ -17,7 +17,7 @@ export function useCarrierProfiles() {
         .order("carrier_name");
 
       if (error) throw error;
-      return (data ?? []) as CarrierProfile[];
+      return (data ?? []) as unknown as CarrierProfile[];
     },
     enabled: !!currentAgent?.tenant_id,
   });
