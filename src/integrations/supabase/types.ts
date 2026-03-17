@@ -24,6 +24,7 @@ export type Database = {
           first_name: string
           id: string
           is_owner: boolean
+          last_login_at: string | null
           last_name: string
           npn: string | null
           position: string | null
@@ -40,6 +41,7 @@ export type Database = {
           first_name: string
           id?: string
           is_owner?: boolean
+          last_login_at?: string | null
           last_name: string
           npn?: string | null
           position?: string | null
@@ -56,6 +58,7 @@ export type Database = {
           first_name?: string
           id?: string
           is_owner?: boolean
+          last_login_at?: string | null
           last_name?: string
           npn?: string | null
           position?: string | null
@@ -331,12 +334,21 @@ export type Database = {
           annual_premium: number | null
           application_date: string | null
           carrier: string | null
+          chargeback_risk: boolean
+          client_dob: string | null
           client_name: string | null
+          client_phone: string | null
           contract_type: string | null
           created_at: string
+          custom_fields: Json
+          effective_date: string | null
           id: string
+          lead_source: string | null
+          notes: string | null
           policy_number: string | null
           product: string | null
+          refs_collected: number
+          refs_sold: number
           resolved_agent_id: string | null
           status: string | null
           tenant_id: string
@@ -346,12 +358,21 @@ export type Database = {
           annual_premium?: number | null
           application_date?: string | null
           carrier?: string | null
+          chargeback_risk?: boolean
+          client_dob?: string | null
           client_name?: string | null
+          client_phone?: string | null
           contract_type?: string | null
           created_at?: string
+          custom_fields?: Json
+          effective_date?: string | null
           id?: string
+          lead_source?: string | null
+          notes?: string | null
           policy_number?: string | null
           product?: string | null
+          refs_collected?: number
+          refs_sold?: number
           resolved_agent_id?: string | null
           status?: string | null
           tenant_id: string
@@ -361,12 +382,21 @@ export type Database = {
           annual_premium?: number | null
           application_date?: string | null
           carrier?: string | null
+          chargeback_risk?: boolean
+          client_dob?: string | null
           client_name?: string | null
+          client_phone?: string | null
           contract_type?: string | null
           created_at?: string
+          custom_fields?: Json
+          effective_date?: string | null
           id?: string
+          lead_source?: string | null
+          notes?: string | null
           policy_number?: string | null
           product?: string | null
+          refs_collected?: number
+          refs_sold?: number
           resolved_agent_id?: string | null
           status?: string | null
           tenant_id?: string
@@ -391,19 +421,28 @@ export type Database = {
       }
       tenants: {
         Row: {
+          agency_name: string | null
           created_at: string
           id: string
+          logo_url: string | null
           name: string
+          primary_color: string | null
         }
         Insert: {
+          agency_name?: string | null
           created_at?: string
           id?: string
+          logo_url?: string | null
           name: string
+          primary_color?: string | null
         }
         Update: {
+          agency_name?: string | null
           created_at?: string
           id?: string
+          logo_url?: string | null
           name?: string
+          primary_color?: string | null
         }
         Relationships: []
       }
@@ -465,6 +504,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      flag_chargeback_risk: { Args: never; Returns: undefined }
       get_current_agent_email: { Args: never; Returns: string }
       get_current_agent_tenant_id: { Args: never; Returns: string }
       get_downline_agent_ids: {
