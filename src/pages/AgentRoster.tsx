@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { useAgents, useArchiveAgent, Agent } from "@/hooks/useAgents";
+import { useAgents, useArchiveAgent, useDeleteAgent, Agent } from "@/hooks/useAgents";
 import { usePolicies, getPoliciesArray } from "@/hooks/usePolicies";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
 import { useAgentContracts, useCreateAgentContract, useDeleteAgentContract } from "@/hooks/useAgentContracts";
@@ -40,6 +40,7 @@ const AgentRoster = () => {
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
   const archiveAgent = useArchiveAgent();
+  const deleteAgent = useDeleteAgent();
   const { positions: positionOptions } = usePositionOptions();
   const { data: policiesRaw } = usePolicies({ status: ["Active"] });
   const policies = getPoliciesArray(policiesRaw);
@@ -200,6 +201,15 @@ const AgentRoster = () => {
                   }}
                 >
                   <Archive className="mr-2 h-3.5 w-3.5" /> Archive
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => {
+                    if (!confirm(`Permanently delete ${r.first_name} ${r.last_name}? This action cannot be undone.`)) return;
+                    deleteAgent.mutate(r.id);
+                  }}
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
                 </DropdownMenuItem>
               </>
             )}
