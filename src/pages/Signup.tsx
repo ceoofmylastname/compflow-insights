@@ -154,6 +154,7 @@ const Signup = () => {
             last_name: lastName,
             email,
             npn: npn || null,
+            phone: phone || null,
             is_owner: true,
             start_date: new Date().toISOString().split("T")[0],
           });
