@@ -26,6 +26,7 @@ const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [npn, setNpn] = useState("");
+  const [phone, setPhone] = useState("");
   const [agencyName, setAgencyName] = useState("");
   const [loading, setLoading] = useState(false);
   const [invite, setInvite] = useState<InviteData | null>(null);
@@ -83,9 +84,9 @@ const Signup = () => {
 
         if (existingAgent) {
           // Claim existing agent record
-          await supabase
+            await supabase
             .from("agents")
-            .update({ auth_user_id: userId, first_name: firstName || undefined, last_name: lastName || undefined, npn: npn || undefined })
+            .update({ auth_user_id: userId, first_name: firstName || undefined, last_name: lastName || undefined, npn: npn || undefined, phone: phone || undefined })
             .eq("id", existingAgent.id);
         } else {
           // No pre-existing agent row — create one under the invite's tenant
@@ -96,6 +97,7 @@ const Signup = () => {
             last_name: lastName,
             email,
             npn: npn || null,
+            phone: phone || null,
             upline_email: invite.invitee_upline_email,
             is_owner: false,
             start_date: new Date().toISOString().split("T")[0],
@@ -129,6 +131,7 @@ const Signup = () => {
               first_name: firstName || undefined,
               last_name: lastName || undefined,
               npn: npn || undefined,
+              phone: phone || undefined,
             })
             .eq("id", unclaimedAgent.id);
 
@@ -151,6 +154,7 @@ const Signup = () => {
             last_name: lastName,
             email,
             npn: npn || null,
+            phone: phone || null,
             is_owner: true,
             start_date: new Date().toISOString().split("T")[0],
           });
@@ -219,6 +223,10 @@ const Signup = () => {
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input id="phone" type="tel" placeholder="(555) 123-4567" value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="npn">NPN (National Producer Number)</Label>
