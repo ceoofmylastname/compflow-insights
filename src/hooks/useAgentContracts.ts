@@ -24,6 +24,7 @@ export function useAgentContracts(agentId?: string | "all") {
       return (data ?? []) as AgentContract[];
     },
     enabled: agentId === "all" || !!agentId,
+    staleTime: 2 * 60 * 1000,
   });
 }
 
