@@ -25,7 +25,7 @@ export default function SuperAdminTenantDetail() {
     if (!authLoading && !isSuperAdmin) navigate("/dashboard", { replace: true });
   }, [authLoading, isSuperAdmin, navigate]);
 
-  if (authLoading || isLoading || !data) {
+  if (authLoading || isLoading || !data || !data.tenant) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
