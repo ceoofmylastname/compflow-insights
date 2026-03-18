@@ -1,13 +1,11 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { useAgents } from "@/hooks/useAgents";
-import { supabase } from "@/integrations/supabase/client";
+import { useScoreboardData } from "@/hooks/useScoreboardData";
 import { formatCurrency } from "@/lib/formatters";
 import { downloadCSV, rowsToCSV } from "@/lib/csv-utils";
 import { Progress } from "@/components/ui/progress";
@@ -16,65 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Download } from "lucide-react";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
-
-interface PayoutWithPolicy {
-  id: string;
-  agent_id: string;
-  policy_id: string;
-  commission_amount: number | null;
-  commission_rate: number | null;
-  payout_type: string;
-  policies: {
-    application_date: string | null;
-    carrier: string | null;
-    status: string | null;
-    annual_premium: number | null;
-    lead_source: string | null;
-  } | null;
-}
-
-function usePayoutsWithPolicies(filters: {
-  dateFrom?: string;
-  dateTo?: string;
-  carrier?: string;
-  status?: string;
-  leadSource?: string;
-}) {
-  return useQuery({
-    queryKey: ["payoutsWithPolicies", filters],
-    queryFn: async (): Promise<PayoutWithPolicy[]> => {
-      const needsInner = !!(filters.dateFrom || filters.dateTo || filters.carrier || filters.status || filters.leadSource);
-      let query = supabase
-        .from("commission_payouts")
-        .select(
-          needsInner
-            ? "id, agent_id, policy_id, commission_amount, commission_rate, payout_type, policies!inner(application_date, carrier, status, annual_premium, lead_source)"
-            : "id, agent_id, policy_id, commission_amount, commission_rate, payout_type, policies(application_date, carrier, status, annual_premium, lead_source)"
-        );
-
-      if (filters.dateFrom) query = query.gte("policies.application_date", filters.dateFrom);
-      if (filters.dateTo) query = query.lte("policies.application_date", filters.dateTo);
-      if (filters.carrier) query = query.eq("policies.carrier", filters.carrier);
-      if (filters.status) query = query.eq("policies.status", filters.status);
-      if (filters.leadSource) query = query.eq("policies.lead_source", filters.leadSource);
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data ?? []) as unknown as PayoutWithPolicy[];
-    },
-  });
-}
-
-interface ScoreRow {
-  agentId: string;
-  name: string;
-  position: string;
-  policies: number;
-  totalPremium: number;
-  totalCommission: number;
-  goalProgress: number;
-  annualGoal: number;
-}
 
 const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
 
@@ -85,8 +24,9 @@ const Scoreboard = () => {
   const [leadSource, setLeadSource] = useState("");
 
   const { data: currentAgent } = useCurrentAgent();
-  const { data: agents, isLoading: agentsLoading } = useAgents();
-  const { data: payouts, isLoading: payoutsLoading, error, refetch } = usePayoutsWithPolicies({
+  const { carriers } = useCarrierOptions();
+
+  const { scoreData, leadSources, isLoading, error, refetch } = useScoreboardData({
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     carrier: carrier || undefined,
@@ -94,56 +34,8 @@ const Scoreboard = () => {
     leadSource: leadSource || undefined,
   });
 
-  // Unfiltered for dropdown lists
-  const { data: allPayouts } = usePayoutsWithPolicies({});
-
-  const { carriers } = useCarrierOptions();
-
-  const leadSources = useMemo(() => {
-    if (!allPayouts) return [];
-    const set = new Set<string>();
-    allPayouts.forEach((p) => { if (p.policies?.lead_source) set.add(p.policies.lead_source); });
-    return [...set].sort();
-  }, [allPayouts]);
-
-  // Aggregate (filtering is now server-side)
-  const scoreData = useMemo((): ScoreRow[] => {
-    if (!agents || !payouts) return [];
-
-    // Group by agent
-    const map = new Map<string, { commission: number; premium: number; policyIds: Set<string> }>();
-    for (const p of payouts) {
-      const existing = map.get(p.agent_id) || { commission: 0, premium: 0, policyIds: new Set<string>() };
-      existing.commission += p.commission_amount || 0;
-      if (!existing.policyIds.has(p.policy_id)) {
-        existing.premium += p.policies?.annual_premium || 0;
-        existing.policyIds.add(p.policy_id);
-      }
-      map.set(p.agent_id, existing);
-    }
-
-    return agents
-      .filter((a) => map.has(a.id))
-      .map((agent) => {
-        const agg = map.get(agent.id)!;
-        const goal = Number(agent.annual_goal) || 0;
-        return {
-          agentId: agent.id,
-          name: `${agent.first_name} ${agent.last_name}`,
-          position: agent.position || "--",
-          policies: agg.policyIds.size,
-          totalPremium: agg.premium,
-          totalCommission: agg.commission,
-          goalProgress: goal > 0 ? (agg.commission / goal) * 100 : 0,
-          annualGoal: goal,
-        };
-      })
-      .sort((a, b) => b.totalCommission - a.totalCommission);
-  }, [agents, payouts]);
-
   const rankedData = scoreData.map((row, i) => ({ ...row, rank: i + 1 }));
   const currentRow = rankedData.find((r) => r.agentId === currentAgent?.id);
-  const loading = agentsLoading || payoutsLoading;
 
   const columns: Column<(typeof rankedData)[number]>[] = [
     { key: "rank", label: "Rank", render: (r) => <span className="font-bold">#{r.rank}</span> },
@@ -219,7 +111,7 @@ const Scoreboard = () => {
           )}
         </div>
 
-        {loading ? (
+        {isLoading ? (
           <SkeletonTable columns={7} />
         ) : rankedData.length === 0 ? (
           <EmptyState title="No scoreboard data" description="Import policies and calculate commissions to see agent rankings." />
