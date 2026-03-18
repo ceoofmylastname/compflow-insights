@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.fire-webhook]
 verify_jwt = false
+
+[functions.get-platform-data]
+verify_jwt = false
