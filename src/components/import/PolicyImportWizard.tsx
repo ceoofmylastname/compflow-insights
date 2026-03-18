@@ -139,6 +139,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
   /* Step 2: Column Mapping */
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [autoCustomFields, setAutoCustomFields] = useState<{ field: CustomField; checked: boolean }[]>([]);
   const [newCfLabel, setNewCfLabel] = useState("");
   const [newCfType, setNewCfType] = useState<"text" | "number" | "date">("text");
   const [newCfColumn, setNewCfColumn] = useState("");
@@ -167,6 +168,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
     setCarrierName("");
     setColumnMappings({});
     setCustomFields([]);
+    setAutoCustomFields([]);
     setNewCfLabel("");
     setNewCfType("text");
     setNewCfColumn("");
@@ -218,16 +220,39 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
       // Auto-detect carrier
       const profiles = carrierProfiles ?? [];
       const detected = detectCarrierFromHeaders(parsed.headers, profiles);
+      
+      let finalMappings: Record<string, string> = {};
+      let existCfs: CustomField[] = [];
+      
       if (detected) {
         setDetectedProfile(detected);
         setCarrierName(detected.carrier_name);
-        setColumnMappings(detected.column_mappings as Record<string, string>);
-        setCustomFields((detected.custom_fields ?? []) as CustomField[]);
+        finalMappings = detected.column_mappings as Record<string, string>;
+        existCfs = (detected.custom_fields ?? []) as CustomField[];
+        setColumnMappings(finalMappings);
+        setCustomFields(existCfs);
       } else {
         setDetectedProfile(null);
-        setColumnMappings(autoMapColumns(parsed.headers));
+        finalMappings = autoMapColumns(parsed.headers);
+        const exactCarrierCol = parsed.headers.find(h => {
+          const lower = h.trim().toLowerCase();
+          return lower === "carrier" || lower === "carrier_name";
+        });
+        if (exactCarrierCol && !finalMappings["carrier"]) {
+          finalMappings["carrier"] = exactCarrierCol;
+        }
+        setColumnMappings(finalMappings);
         setCustomFields([]);
       }
+      
+      // Auto-detect custom fields
+      const usedCsvCols = new Set(Object.values(finalMappings));
+      existCfs.forEach(cf => usedCsvCols.add(cf.csvColumn));
+
+      const newAutoFields = parsed.headers
+         .filter(h => h.trim() && !usedCsvCols.has(h))
+         .map(h => ({ field: { label: h.trim(), type: "text" as const, csvColumn: h.trim() }, checked: true }));
+      setAutoCustomFields(newAutoFields);
     },
     [carrierProfiles]
   );
@@ -293,10 +318,26 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
     if (!currentAgent) return;
     setResolving(true);
 
+    const activeCustomFields = [
+      ...customFields,
+      ...autoCustomFields.filter((f) => f.checked).map((f) => f.field),
+    ];
+
+    // Pre-fetch carrier registry for name normalization
+    const { data: registeredCarriers } = await supabase
+      .from("carriers")
+      .select("name")
+      .eq("tenant_id", currentAgent.tenant_id);
+
+    const carrierNameMap = new Map<string, string>();
+    for (const c of registeredCarriers ?? []) {
+      carrierNameMap.set(c.name.toLowerCase(), c.name);
+    }
+
     // Build all mapped rows first to extract unique writing_agent_ids
     const uniqueAgents = new Map<string, string>(); // writingAgentId -> carrier
     for (const row of rows) {
-      const { mapped } = applyColumnMapping(headers, row, columnMappings, customFields);
+      const { mapped } = applyColumnMapping(headers, row, columnMappings, activeCustomFields);
       const wai = mapped.writing_agent_id?.trim();
       const car = mapped.carrier?.trim() || carrierName;
       if (wai && !uniqueAgents.has(wai)) {
@@ -311,7 +352,8 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         writingAgentId,
         carrier,
         currentAgent.tenant_id,
-        supabase
+        supabase,
+        carrierNameMap
       );
       resolutions.push({
         writingAgentId,
@@ -326,7 +368,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
     setAgentResolutions(resolutions);
     setResolving(false);
     setStep(2);
-  }, [currentAgent, rows, headers, columnMappings, customFields, carrierName]);
+  }, [currentAgent, rows, headers, columnMappings, customFields, autoCustomFields, carrierName]);
 
   /* ---------- Step 3 -> 4: Validate ---------- */
   const proceedToValidation = useCallback(() => {
@@ -338,13 +380,18 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
       resolutionMap.set(r.writingAgentId, { agentId, method });
     }
 
+    const activeCustomFields = [
+      ...customFields,
+      ...autoCustomFields.filter((f) => f.checked).map((f) => f.field),
+    ];
+
     const built: ImportRow[] = [];
     for (let i = 0; i < rows.length; i++) {
       const { mapped, customFieldValues } = applyColumnMapping(
         headers,
         rows[i],
         columnMappings,
-        customFields
+        activeCustomFields
       );
 
       // Apply carrier name if not in mapping
@@ -377,7 +424,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
 
     setImportRows(built);
     setStep(3);
-  }, [rows, headers, columnMappings, customFields, carrierName, agentResolutions]);
+  }, [rows, headers, columnMappings, customFields, autoCustomFields, carrierName, agentResolutions]);
 
   /* ---------- Step 4: Download skip report ---------- */
   const downloadSkipReport = useCallback(() => {
@@ -422,18 +469,23 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         let premiumToUpsert = rawPremium;
         let refsCollectedToUpsert = rawRefsCollected;
         let refsSoldToUpsert = rawRefsSold;
+        let previousStatus: string | null = null;
 
-        if (importMode === "additive" && m.policy_number) {
+        if (m.policy_number) {
           const { data: existing } = await supabase
             .from("policies")
-            .select("annual_premium, refs_collected, refs_sold")
+            .select("annual_premium, refs_collected, refs_sold, status")
             .eq("policy_number", m.policy_number.trim())
             .eq("tenant_id", currentAgent.tenant_id)
             .maybeSingle();
+            
           if (existing) {
-            premiumToUpsert = (existing.annual_premium || 0) + rawPremium;
-            refsCollectedToUpsert = (existing.refs_collected || 0) + rawRefsCollected;
-            refsSoldToUpsert = (existing.refs_sold || 0) + rawRefsSold;
+            previousStatus = existing.status;
+            if (importMode === "additive") {
+              premiumToUpsert = (existing.annual_premium || 0) + rawPremium;
+              refsCollectedToUpsert = (existing.refs_collected || 0) + rawRefsCollected;
+              refsSoldToUpsert = (existing.refs_sold || 0) + rawRefsSold;
+            }
           }
         }
 
@@ -481,8 +533,8 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
             result.payoutsCalculated++;
           } catch {}
 
-          // Fire webhooks if Active
-          if (status === "Active") {
+          // Fire webhooks if transitioning to Active
+          if (status === "Active" && previousStatus !== "Active") {
             const { data: activeWebhooks } = await supabase
               .from("webhook_configs")
               .select("*")
@@ -529,7 +581,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
     );
     for (const r of aliasResolutions) {
       try {
-        await supabase.from("carrier_agent_aliases").upsert(
+        const { error } = await supabase.from("carrier_agent_aliases").upsert(
           {
             tenant_id: currentAgent.tenant_id,
             carrier: r.carrier,
@@ -538,7 +590,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
           } as any,
           { onConflict: "tenant_id,carrier,writing_agent_id" as any, ignoreDuplicates: false }
         );
-        result.aliasesSaved++;
+        if (!error) result.aliasesSaved++;
       } catch {}
     }
 
@@ -556,13 +608,17 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
       toast.error("Enter a carrier name to save the profile");
       return;
     }
+    const activeCustomFields = [
+      ...customFields,
+      ...autoCustomFields.filter((f) => f.checked).map((f) => f.field),
+    ];
     createProfile.mutate({
       carrier_name: carrierName.trim(),
       column_mappings: columnMappings,
-      custom_fields: customFields,
+      custom_fields: activeCustomFields,
       header_fingerprint: headers,
     });
-  }, [carrierName, columnMappings, customFields, headers, createProfile]);
+  }, [carrierName, columnMappings, customFields, autoCustomFields, headers, createProfile]);
 
   /* ---------- Download import report ---------- */
   const downloadImportReport = useCallback(() => {
@@ -834,6 +890,28 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
                 </Button>
               </div>
             </div>
+
+            {autoCustomFields.length > 0 && (
+              <div className="space-y-2 mt-6">
+                <p className="text-xs font-medium text-foreground">Auto-detected Carrier Fields</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {autoCustomFields.map((acf, i) => (
+                    <div key={i} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`acf-${i}`}
+                        checked={acf.checked}
+                        onCheckedChange={(val) => {
+                          setAutoCustomFields((prev) => 
+                            prev.map((p, idx) => idx === i ? { ...p, checked: !!val } : p)
+                          );
+                        }}
+                      />
+                      <label htmlFor={`acf-${i}`} className="text-xs truncate">{acf.field.label}</label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-between">
               <Button variant="outline" onClick={() => setStep(0)}>

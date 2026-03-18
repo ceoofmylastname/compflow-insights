@@ -8,6 +8,8 @@ export interface LapseAlert {
   carrier: string;
   daysPending: number;
   annualPremium: number;
+  status: string;
+  agentId: string | null;
 }
 
 export function useAlerts() {
@@ -16,9 +18,9 @@ export function useAlerts() {
     queryFn: async (): Promise<LapseAlert[]> => {
       const { data, error } = await supabase
         .from("policies")
-        .select("id, client_name, carrier, application_date, annual_premium")
+        .select("id, client_name, carrier, application_date, annual_premium, status, resolved_agent_id")
         .eq("chargeback_risk", true)
-        .eq("status", "Pending");
+        .in("status", ["Pending", "Submitted"]);
 
       if (error) throw error;
 
@@ -31,6 +33,8 @@ export function useAlerts() {
           ? differenceInDays(now, new Date(p.application_date))
           : 0,
         annualPremium: p.annual_premium || 0,
+        status: p.status || "Unknown",
+        agentId: p.resolved_agent_id,
       }));
     },
     refetchInterval: 5 * 60 * 1000,

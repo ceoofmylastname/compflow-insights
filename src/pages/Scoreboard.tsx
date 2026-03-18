@@ -9,6 +9,7 @@ import { useScoreboardData } from "@/hooks/useScoreboardData";
 import { formatCurrency } from "@/lib/formatters";
 import { downloadCSV, rowsToCSV } from "@/lib/csv-utils";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Download } from "lucide-react";
@@ -21,6 +22,7 @@ const Scoreboard = () => {
   const { dateFrom, dateTo } = useFilters();
   const [carrier, setCarrier] = useState("");
   const [status, setStatus] = useState("");
+  const [rankMode, setRankMode] = useState<"All" | "Submitted" | "Active">("All");
   const [leadSource, setLeadSource] = useState("");
 
   const { data: currentAgent } = useCurrentAgent();
@@ -32,8 +34,8 @@ const Scoreboard = () => {
     carrier: carrier || undefined,
     status: status || undefined,
     leadSource: leadSource || undefined,
+    rankMode,
   });
-
   const rankedData = scoreData.map((row, i) => ({ ...row, rank: i + 1 }));
   const currentRow = rankedData.find((r) => r.agentId === currentAgent?.id);
 
@@ -83,6 +85,15 @@ const Scoreboard = () => {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={rankedData.length === 0}>
             <Download className="h-4 w-4 mr-2" /> Export CSV
           </Button>
+        </div>
+        <div className="flex items-center justify-between">
+          <Tabs value={rankMode} onValueChange={(v: any) => setRankMode(v)} className="w-[400px]">
+            <TabsList className="grid w-full grid-cols-3 h-9">
+              <TabsTrigger value="All" className="text-xs">Rank by All</TabsTrigger>
+              <TabsTrigger value="Submitted" className="text-xs">Rank by Submitted</TabsTrigger>
+              <TabsTrigger value="Active" className="text-xs">Rank by Active</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
 
         <div className="card-elevated p-3 flex flex-wrap gap-3 items-center">

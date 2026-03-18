@@ -20,6 +20,7 @@ interface ScoreboardFilters {
   carrier?: string;
   status?: string;
   leadSource?: string;
+  rankMode?: "All" | "Submitted" | "Active";
 }
 
 function usePoliciesForScoreboard(filters: ScoreboardFilters) {
@@ -35,6 +36,7 @@ function usePoliciesForScoreboard(filters: ScoreboardFilters) {
       if (filters.dateTo) query = query.lte("application_date", filters.dateTo);
       if (filters.carrier) query = query.eq("carrier", filters.carrier);
       if (filters.status) query = query.eq("status", filters.status);
+      if (filters.rankMode && filters.rankMode !== "All") query = query.eq("status", filters.rankMode);
       if (filters.leadSource) query = query.eq("lead_source", filters.leadSource);
 
       const { data, error } = await query;
@@ -48,7 +50,7 @@ function usePayoutsForScoreboard(filters: ScoreboardFilters) {
   return useQuery({
     queryKey: ["scoreboardPayouts", filters],
     queryFn: async () => {
-      const needsInner = !!(filters.dateFrom || filters.dateTo || filters.carrier || filters.status || filters.leadSource);
+      const needsInner = !!(filters.dateFrom || filters.dateTo || filters.carrier || filters.status || filters.leadSource || (filters.rankMode && filters.rankMode !== "All"));
       let query = supabase
         .from("commission_payouts")
         .select(
@@ -61,6 +63,7 @@ function usePayoutsForScoreboard(filters: ScoreboardFilters) {
       if (filters.dateTo) query = query.lte("policies.application_date", filters.dateTo);
       if (filters.carrier) query = query.eq("policies.carrier", filters.carrier);
       if (filters.status) query = query.eq("policies.status", filters.status);
+      if (filters.rankMode && filters.rankMode !== "All") query = query.eq("policies.status", filters.rankMode);
       if (filters.leadSource) query = query.eq("policies.lead_source", filters.leadSource);
 
       const { data, error } = await query;

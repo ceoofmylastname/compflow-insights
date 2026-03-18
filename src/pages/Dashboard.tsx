@@ -10,7 +10,7 @@ import { useAgents } from "@/hooks/useAgents";
 import { formatCurrency, formatNumber } from "@/lib/formatters";
 import { supabase } from "@/integrations/supabase/client";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { DollarSign, TrendingUp, FileText, Users, Upload, UserPlus, PlusCircle, ArrowRight } from "lucide-react";
+import { DollarSign, TrendingUp, FileText, Users, Upload, UserPlus, PlusCircle, ArrowRight, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 // Card imports removed — using card-elevated utility classes
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -24,9 +24,11 @@ import { useCanImport } from "@/hooks/useCanImport";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { format, subMonths, startOfMonth, endOfMonth, parseISO } from "date-fns";
+import { format, subMonths, startOfMonth, endOfMonth, parseISO, formatDistanceToNow } from "date-fns";
+import { useCanImport } from "@/hooks/useCanImport";
 
 const Dashboard = () => {
+  const { canImport } = useCanImport();
   const [importOpen, setImportOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [postDealOpen, setPostDealOpen] = useState(false);
@@ -103,25 +105,22 @@ const Dashboard = () => {
     });
   }, [trendPayouts]);
 
-  // Card 1: Total Commission (direct payouts for current agent)
-  const totalCommission = useMemo(() => {
-    if (!payouts || !currentAgent) return 0;
-    return payouts
-      .filter((p) => p.payout_type === "direct" && p.agent_id === currentAgent.id)
-      .reduce((s, p) => s + (p.commission_amount || 0), 0);
-  }, [payouts, currentAgent]);
+  const policyStatusMap = useMemo(() => new Map(allPolicies.map(p => [p.id, p.status])), [allPolicies]);
 
-  // Card 2: Team Premium (all policies in scope — RLS scopes to downline)
-  const teamPremium = useMemo(
-    () => allPolicies.reduce((s, p) => s + (p.annual_premium || 0), 0),
-    [allPolicies]
-  );
+  // Cards: Premiums
+  const subPremium = useMemo(() => allPolicies.filter(p => p.status === "Submitted").reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
+  const actPremium = useMemo(() => allPolicies.filter(p => p.status === "Active").reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
 
-  // Card 3: Active Policies count
-  const activePolicies = useMemo(
-    () => allPolicies.filter((p) => p.status === "Active").length,
-    [allPolicies]
-  );
+  // Cards: Commissions
+  const directPayouts = useMemo(() => payouts?.filter(p => p.payout_type === "direct" && p.agent_id === currentAgent?.id) ?? [], [payouts, currentAgent]);
+  const subCommission = useMemo(() => directPayouts.filter(p => policyStatusMap.get(p.policy_id) === "Submitted").reduce((s, p) => s + (p.commission_amount || 0), 0), [directPayouts, policyStatusMap]);
+  const actCommission = useMemo(() => directPayouts.filter(p => policyStatusMap.get(p.policy_id) === "Active").reduce((s, p) => s + (p.commission_amount || 0), 0), [directPayouts, policyStatusMap]);
+
+  // Active Policies count
+  const activePolicies = useMemo(() => allPolicies.filter((p) => p.status === "Active").length, [allPolicies]);
+  
+  // Backwards compatibility for GoalProgress (using Issued Commission)
+  const totalCommission = actCommission;
 
   // Card 4: Team Size (exclude self)
   const teamSize = Math.max(0, (agents?.length ?? 0) - 1);
@@ -149,6 +148,27 @@ const Dashboard = () => {
 
   // Goal progress: direct commission vs annual_goal
   const annualGoal = Number(currentAgent?.annual_goal) || 0;
+
+  // Last Import Summary
+  const { data: importSummary, isLoading: importSummaryLoading } = useQuery({
+    queryKey: ["lastImportSummary", currentAgent?.tenant_id],
+    queryFn: async () => {
+      const { data: maxDate } = await supabase.from("policies").select("created_at").order("created_at", { ascending: false }).limit(1);
+      if (!maxDate?.length) return null;
+      
+      const lastDate = parseISO(maxDate[0].created_at);
+      const startOfBatch = new Date(lastDate.getTime() - 90000).toISOString(); // 1.5 minute window for batch
+      const { data: batch } = await supabase.from("policies").select("id, resolved_agent_id").gte("created_at", startOfBatch);
+      if (!batch) return null;
+      
+      return {
+        date: lastDate,
+        total: batch.length,
+        unassigned: batch.filter(p => !p.resolved_agent_id).length
+      };
+    },
+    enabled: canImport && !!currentAgent
+  });
 
   const loading = agentLoading || policiesLoading || payoutsLoading || agentsLoading;
 
@@ -190,11 +210,42 @@ const Dashboard = () => {
         </div>
 
         {/* Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Total Commission" value={formatCurrency(totalCommission)} icon={DollarSign} loading={loading} variant="hero" animationDelay="0.05s" />
-          <StatCard label="Team Premium" value={formatCurrency(teamPremium)} icon={TrendingUp} loading={loading} animationDelay="0.10s" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-2 gap-4">
+          <StatCard label="Submitted Premium" value={formatCurrency(subPremium)} icon={TrendingUp} loading={loading} animationDelay="0.05s" />
+          <StatCard label="Active Premium" value={formatCurrency(actPremium)} icon={TrendingUp} loading={loading} animationDelay="0.10s" />
           <StatCard label="Active Policies" value={formatNumber(activePolicies)} icon={FileText} loading={loading} animationDelay="0.15s" />
           <StatCard label="Team Size" value={formatNumber(teamSize)} icon={Users} loading={loading} animationDelay="0.20s" />
+          <StatCard label="Submitted Commission" value={formatCurrency(subCommission)} icon={DollarSign} loading={loading} animationDelay="0.25s" />
+          <StatCard label="Issued Commission" value={formatCurrency(actCommission)} icon={DollarSign} variant="hero" loading={loading} animationDelay="0.30s" />
+          <div className="lg:col-span-2">
+            {canImport && importSummary && (
+              <div className="card-elevated p-4 h-full flex flex-col justify-center animate-slide-up" style={{ animationDelay: "0.35s" }}>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-semibold text-foreground flex items-center">
+                    <Upload className="h-4 w-4 mr-2 text-muted-foreground" />
+                    Last Import Summary
+                  </h3>
+                  <a href="/book-of-business" className="text-xs text-primary hover:underline flex items-center">
+                    View <ArrowRight className="h-3 w-3 ml-1" />
+                  </a>
+                </div>
+                <div className="flex items-end justify-between">
+                  <p className="text-xs text-muted-foreground">{formatDistanceToNow(importSummary.date)} ago</p>
+                  <div className="flex gap-3 text-sm">
+                    <span><span className="font-semibold">{importSummary.total}</span> imported</span>
+                    {importSummary.unassigned > 0 ? (
+                      <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        {importSummary.unassigned} unassigned
+                      </span>
+                    ) : (
+                      <span className="text-emerald-600 dark:text-emerald-400">All assigned</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <GoalProgress current={totalCommission} goal={annualGoal} loading={loading} />

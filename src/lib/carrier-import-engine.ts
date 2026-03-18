@@ -88,7 +88,7 @@ export function detectCarrierFromHeaders(
     const matchCount = fingerprint.filter((h) => normalizedCsv.has(h)).length;
     const score = matchCount / fingerprint.length;
 
-    if (score > bestScore && score >= 0.6) {
+    if (score > bestScore && score >= 0.5) {
       bestScore = score;
       bestMatch = profile;
     }

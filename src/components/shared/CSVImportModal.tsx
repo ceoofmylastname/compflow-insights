@@ -308,6 +308,17 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
           const premium = cleanCurrency(r.annual_premium || "0");
           const status = normalizeStatus(r.status || "Submitted");
 
+          let previousStatus: string | null = null;
+          if (r.policy_number) {
+            const { data: existing } = await supabase
+              .from("policies")
+              .select("status")
+              .eq("policy_number", r.policy_number)
+              .eq("tenant_id", tenantId)
+              .maybeSingle();
+            if (existing) previousStatus = existing.status;
+          }
+
           const { data: policy, error } = await supabase
             .from("policies")
             .upsert(
@@ -345,7 +356,7 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
             const agent = agents?.find((a) => a.id === resolvedAgentId);
 
-            if (status === "Active" && webhooks.length > 0) {
+            if (status === "Active" && previousStatus !== "Active" && webhooks.length > 0) {
               const webhookPayload = {
                 event: "deal.posted",
                 policy_number: r.policy_number || "",
@@ -390,7 +401,6 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     downloadCSV("import-errors.csv", rowsToCSV(headers, rows));
   };
 
-  // Gate: if user cannot import, don't render
   if (!canImport) return null;
 
   return (

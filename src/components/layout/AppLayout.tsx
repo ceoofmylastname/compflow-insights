@@ -5,6 +5,7 @@ import { useAlerts } from "@/hooks/useAlerts";
 import { useTenant } from "@/hooks/useTenant";
 import { useTenantFromDomain, type DomainTenant } from "@/hooks/useTenantFromDomain";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
+import { useAgents } from "@/hooks/useAgents";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Bell, AlertTriangle, Search } from "lucide-react";
@@ -31,6 +32,8 @@ function saveSeenIds(ids: Set<string>) {
 
 function AlertBell() {
   const { data: alerts } = useAlerts();
+  const { data: currentAgent } = useCurrentAgent();
+  const { data: agents } = useAgents();
   const [seenIds, setSeenIds] = useState<Set<string>>(getSeenIds);
 
   const unseenCount = (alerts ?? []).filter((a) => !seenIds.has(a.id)).length;
@@ -66,22 +69,37 @@ function AlertBell() {
           </p>
         </div>
         <div className="max-h-64 overflow-y-auto divide-y divide-border">
-          {alerts.map((alert) => (
-            <div key={alert.id} className="px-4 py-3 hover:bg-accent/50 transition-colors">
-              <div className="flex items-start gap-2.5">
-                <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {alert.clientName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {alert.carrier} &middot; {alert.daysPending}d pending &middot;{" "}
-                    {formatCurrency(alert.annualPremium)}
-                  </p>
+          {alerts.map((alert) => {
+            const isManager = currentAgent && alert.agentId && alert.agentId !== currentAgent.id;
+            const agent = isManager ? agents?.find(a => a.id === alert.agentId) : null;
+            const agentName = agent ? `${agent.first_name || ""} ${agent.last_name || ""}`.trim() : "Unknown Agent";
+            const badgeColor = alert.status === "Submitted" ? "bg-amber-100 text-amber-800" : "bg-yellow-100 text-yellow-800";
+
+            return (
+              <div key={alert.id} className="px-4 py-3 hover:bg-accent/50 transition-colors">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {isManager ? `${agentName} — ${alert.clientName}` : alert.clientName}
+                      </p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-sm font-medium ${badgeColor}`}>
+                        {alert.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {alert.carrier} &middot; Days at risk: {alert.daysPending} &middot;{" "}
+                      {formatCurrency(alert.annualPremium)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {isManager ? "Contact agent" : "Contact client"}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </PopoverContent>
     </Popover>

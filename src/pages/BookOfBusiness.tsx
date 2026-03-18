@@ -117,6 +117,8 @@ const BookOfBusiness = () => {
   }, [policies, hasRiskFilter, loaOnlyFilter]);
 
   const handleStatusChange = async (policyId: string, newStatus: string) => {
+    const policy = policies.find(p => p.id === policyId);
+
     const { error } = await supabase
       .from("policies")
       .update({ status: newStatus })
@@ -128,6 +130,41 @@ const BookOfBusiness = () => {
     try {
       await calculateAndSavePayouts(policyId, supabase);
     } catch {}
+
+    // Check for non-Active to Active transition
+    if (policy && policy.status !== "Active" && newStatus === "Active" && currentAgent) {
+      try {
+        const { data: activeWebhooks } = await supabase
+          .from("webhook_configs")
+          .select("webhook_url")
+          .eq("tenant_id", currentAgent.tenant_id)
+          .eq("is_active", true)
+          .eq("event_type", "deal.posted" as any);
+
+        if (activeWebhooks && activeWebhooks.length > 0) {
+          const agent = agents?.find(a => a.id === policy.resolved_agent_id);
+          const webhookPayload = {
+            event: "deal.posted",
+            policy_number: policy.policy_number || "",
+            client_name: policy.client_name || "",
+            carrier: policy.carrier || "",
+            product: policy.product || "",
+            annual_premium: policy.annual_premium || 0,
+            agent_email: agent?.email || "",
+            application_date: policy.application_date || "",
+            status: newStatus,
+          };
+          for (const config of activeWebhooks) {
+            await supabase.functions.invoke("fire-webhook", {
+              body: { webhook_url: config.webhook_url, payload: webhookPayload },
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fire webhooks on status transition", e);
+      }
+    }
+
     queryClient.invalidateQueries({ queryKey: ["policies"] });
     queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
     toast.success(`Status updated to ${newStatus}`);

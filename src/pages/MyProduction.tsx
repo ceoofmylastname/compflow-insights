@@ -15,6 +15,7 @@ import { CSVImportModal } from "@/components/shared/CSVImportModal";
 import { Progress } from "@/components/ui/progress";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
+import { useCanImport } from "@/hooks/useCanImport";
 
 const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
 
@@ -25,6 +26,7 @@ const MyProduction = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [contractType, setContractType] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const { canImport } = useCanImport();
 
   const policyFilters = useMemo(() => ({
     resolvedAgentId: currentAgent?.id,
@@ -60,12 +62,14 @@ const MyProduction = () => {
     });
   }, [policies, commissionByPolicy]);
 
-  const totalPremium = enriched.reduce((s, p) => s + (p.annual_premium || 0), 0);
-  const totalCommission = enriched.reduce((s, p) => s + (p._commission || 0), 0);
+  const subPremium = enriched.filter(p => p.status === "Submitted").reduce((s, p) => s + (p.annual_premium || 0), 0);
+  const actPremium = enriched.filter(p => p.status === "Active").reduce((s, p) => s + (p.annual_premium || 0), 0);
+  const subCommission = enriched.filter(p => p.status === "Submitted").reduce((s, p) => s + (p._commission || 0), 0);
+  const actCommission = enriched.filter(p => p.status === "Active").reduce((s, p) => s + (p._commission || 0), 0);
   const totalRefsCollected = enriched.reduce((s, p) => s + (p.refs_collected || 0), 0);
   const totalRefsSold = enriched.reduce((s, p) => s + (p.refs_sold || 0), 0);
   const annualGoal = Number(currentAgent?.annual_goal) || 0;
-  const goalPercent = annualGoal > 0 ? Math.min(100, (totalCommission / annualGoal) * 100) : 0;
+  const goalPercent = annualGoal > 0 ? Math.min(100, (actCommission / annualGoal) * 100) : 0;
 
   const columns: Column<typeof enriched[number]>[] = [
     { key: "policy_number", label: "Policy Number" },
@@ -90,16 +94,20 @@ const MyProduction = () => {
         {/* Summary bar */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="card-elevated p-4 space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Policies</p>
-            <p className="text-lg font-bold text-foreground">{enriched.length}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted Premium</p>
+            <p className="text-lg font-bold text-foreground">{formatCurrency(subPremium)}</p>
           </div>
           <div className="card-elevated p-4 space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total Premium</p>
-            <p className="text-lg font-bold text-foreground">{formatCurrency(totalPremium)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Active Premium</p>
+            <p className="text-lg font-bold text-foreground">{formatCurrency(actPremium)}</p>
           </div>
           <div className="card-elevated p-4 space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Direct Commission</p>
-            <p className="text-lg font-bold text-foreground">{formatCurrency(totalCommission)}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Submitted Comm.</p>
+            <p className="text-lg font-bold text-foreground">{formatCurrency(subCommission)}</p>
+          </div>
+          <div className="card-elevated p-4 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Issued Comm.</p>
+            <p className="text-lg font-bold text-foreground">{formatCurrency(actCommission)}</p>
           </div>
           <div className="card-elevated p-4 space-y-1">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Goal Progress</p>
@@ -147,8 +155,8 @@ const MyProduction = () => {
         ) : enriched.length === 0 ? (
           <EmptyState
             title="No policies yet"
-            description="Import a policy report to see your production data."
-            action={{ label: "Import CSV", onClick: () => setImportOpen(true) }}
+            description={canImport ? "Import a policy report to see your production data." : "Your manager handles policy imports."}
+            action={canImport ? { label: "Import CSV", onClick: () => setImportOpen(true) } : undefined}
           />
         ) : (
           <DataTable
@@ -158,9 +166,9 @@ const MyProduction = () => {
             exportFilename="my-production.csv"
             summaryRow={
               <div className="flex gap-6 rounded-lg border border-border bg-muted/50 p-3 text-sm font-medium text-foreground">
-                <span>Total: {formatCurrency(totalPremium)} premium</span>
+                <span>Submitted: {formatCurrency(subPremium)} / {formatCurrency(subCommission)}</span>
                 <span>|</span>
-                <span>{formatCurrency(totalCommission)} commission</span>
+                <span>Active: {formatCurrency(actPremium)} / {formatCurrency(actCommission)}</span>
               </div>
             }
           />
