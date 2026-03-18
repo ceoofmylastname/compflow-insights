@@ -40,13 +40,14 @@ interface TreeNode {
 }
 
 interface AgentStats {
+  submittedPrem: number;
   activePrem: number;
   commYTD: number;
   directReports: number;
   lastPolicyDaysAgo: number | null; // null = never wrote
 }
 
-const DEFAULT_STATS: AgentStats = { activePrem: 0, commYTD: 0, directReports: 0, lastPolicyDaysAgo: null };
+const DEFAULT_STATS: AgentStats = { submittedPrem: 0, activePrem: 0, commYTD: 0, directReports: 0, lastPolicyDaysAgo: null };
 
 const MAX_INITIAL_DEPTH = 2;
 const CHILDREN_GRID_THRESHOLD = 8;
@@ -264,17 +265,25 @@ const NodeCard = memo(function NodeCard({
         </div>
 
         {/* Stats grid */}
-        <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-muted/50 p-2">
+        <div className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-muted/50 p-2">
           <div className="text-center">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Premium</p>
+            <p className="text-[8px] uppercase tracking-wider text-sky-500 font-medium">Submitted</p>
+            <p className="text-[11px] font-bold text-foreground mt-0.5">
+              {stats.submittedPrem >= 1000
+                ? `$${(stats.submittedPrem / 1000).toFixed(1)}k`
+                : formatCurrency(stats.submittedPrem)}
+            </p>
+          </div>
+          <div className="text-center border-x border-border/50">
+            <p className="text-[8px] uppercase tracking-wider text-emerald-500 font-medium">Issued</p>
             <p className="text-[11px] font-bold text-foreground mt-0.5">
               {stats.activePrem >= 1000
                 ? `$${(stats.activePrem / 1000).toFixed(1)}k`
                 : formatCurrency(stats.activePrem)}
             </p>
           </div>
-          <div className="text-center border-x border-border/50">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Comm</p>
+          <div className="text-center border-r border-border/50">
+            <p className="text-[8px] uppercase tracking-wider text-muted-foreground font-medium">Comm</p>
             <p className="text-[11px] font-bold text-foreground mt-0.5">
               {stats.commYTD >= 1000
                 ? `$${(stats.commYTD / 1000).toFixed(1)}k`
@@ -282,7 +291,7 @@ const NodeCard = memo(function NodeCard({
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Reports</p>
+            <p className="text-[8px] uppercase tracking-wider text-muted-foreground font-medium">Reports</p>
             <p className="text-[11px] font-bold text-foreground mt-0.5">{stats.directReports}</p>
           </div>
         </div>
@@ -448,7 +457,8 @@ function SummaryBar({
   statsMap: Map<string, AgentStats>;
 }) {
   const totals = useMemo(() => {
-    let totalPrem = 0;
+    let totalSubmitted = 0;
+    let totalIssued = 0;
     let totalComm = 0;
     let hotCount = 0;
     let activeCount = 0;
@@ -457,7 +467,8 @@ function SummaryBar({
 
     for (const a of agents) {
       const s = statsMap.get(a.id) ?? DEFAULT_STATS;
-      totalPrem += s.activePrem;
+      totalSubmitted += s.submittedPrem;
+      totalIssued += s.activePrem;
       totalComm += s.commYTD;
       const level = getActivityLevel(s.lastPolicyDaysAgo);
       if (level === "hot") hotCount++;
@@ -466,13 +477,14 @@ function SummaryBar({
       else dormantCount++;
     }
 
-    return { totalPrem, totalComm, totalAgents: agents.length, hotCount, activeCount, idleCount, dormantCount };
+    return { totalSubmitted, totalIssued, totalComm, totalAgents: agents.length, hotCount, activeCount, idleCount, dormantCount };
   }, [agents, statsMap]);
 
   const items = [
     { icon: Users, label: "Total Agents", value: totals.totalAgents.toString(), color: "text-primary" },
-    { icon: DollarSign, label: "Total Premium", value: totals.totalPrem >= 1000 ? `$${(totals.totalPrem / 1000).toFixed(0)}k` : formatCurrency(totals.totalPrem), color: "text-emerald-500" },
-    { icon: TrendingUp, label: "Total Commission", value: totals.totalComm >= 1000 ? `$${(totals.totalComm / 1000).toFixed(0)}k` : formatCurrency(totals.totalComm), color: "text-sky-500" },
+    { icon: DollarSign, label: "Submitted Premium", value: totals.totalSubmitted >= 1000 ? `$${(totals.totalSubmitted / 1000).toFixed(0)}k` : formatCurrency(totals.totalSubmitted), color: "text-sky-500" },
+    { icon: DollarSign, label: "Issued Premium", value: totals.totalIssued >= 1000 ? `$${(totals.totalIssued / 1000).toFixed(0)}k` : formatCurrency(totals.totalIssued), color: "text-emerald-500" },
+    { icon: TrendingUp, label: "Total Commission", value: totals.totalComm >= 1000 ? `$${(totals.totalComm / 1000).toFixed(0)}k` : formatCurrency(totals.totalComm), color: "text-amber-500" },
   ];
 
   const activityPills = [
@@ -643,8 +655,11 @@ export function OrgTree({
   }, []);
 
   /* ---------- stats ---------- */
-  const { data: policiesRaw } = usePolicies({ status: ["Active"] });
-  const activePolicies = getPoliciesArray(policiesRaw);
+  const { data: issuedPoliciesRaw } = usePolicies({ status: ["Active"] });
+  const issuedPolicies = getPoliciesArray(issuedPoliciesRaw);
+
+  const { data: submittedPoliciesRaw } = usePolicies({ status: ["Submitted"] });
+  const submittedPolicies = getPoliciesArray(submittedPoliciesRaw);
 
   // All policies for "last policy" calculation
   const { data: allPoliciesRaw } = usePolicies({});
@@ -658,7 +673,10 @@ export function OrgTree({
     const map = new Map<string, AgentStats>();
     const now = Date.now();
     for (const a of agents) {
-      const activePrem = activePolicies
+      const submittedPrem = submittedPolicies
+        .filter((p) => p.resolved_agent_id === a.id)
+        .reduce((s, p) => s + (p.annual_premium || 0), 0);
+      const activePrem = issuedPolicies
         .filter((p) => p.resolved_agent_id === a.id)
         .reduce((s, p) => s + (p.annual_premium || 0), 0);
       const commYTD = (payouts ?? [])
@@ -680,10 +698,10 @@ export function OrgTree({
         }
       }
 
-      map.set(a.id, { activePrem, commYTD, directReports, lastPolicyDaysAgo });
+      map.set(a.id, { submittedPrem, activePrem, commYTD, directReports, lastPolicyDaysAgo });
     }
     return map;
-  }, [agents, activePolicies, allPolicies, payouts]);
+  }, [agents, issuedPolicies, submittedPolicies, allPolicies, payouts]);
 
   /* ---------- search highlighting ---------- */
   const highlightedIds = useMemo(() => {
