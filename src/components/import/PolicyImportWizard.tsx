@@ -63,6 +63,7 @@ import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useCanImport } from "@/hooks/useCanImport";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
