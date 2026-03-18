@@ -167,9 +167,11 @@ const Dashboard = () => {
             <Button variant="outline" size="sm" onClick={() => setPostDealOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" /> Post a Deal
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-              <Upload className="mr-2 h-4 w-4" /> Import
-            </Button>
+            {canImport && (
+              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" /> Import
+              </Button>
+            )}
             <Button size="sm" className="btn-primary-elevated" onClick={() => setInviteOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" /> Invite Agent
             </Button>

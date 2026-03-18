@@ -117,7 +117,17 @@ const FIELD_LABELS: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 
 export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardProps) {
+  const { canImport } = useCanImport();
   const { data: currentAgent } = useCurrentAgent();
+
+  // Gate: if user cannot import, close and show toast
+  if (open && !canImport) {
+    setTimeout(() => {
+      onOpenChange(false);
+      toast.error("Only owners and managers can import data");
+    }, 0);
+    return null;
+  }
   const { data: agents } = useAgents();
   const { data: carrierProfiles } = useCarrierProfiles();
   const createProfile = useCreateCarrierProfile();

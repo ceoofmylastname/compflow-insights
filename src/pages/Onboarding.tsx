@@ -9,10 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 
 const steps = [
-  { label: "Import your agent roster", description: "At least 1 additional agent in your roster" },
-  { label: "Import commission levels", description: "At least 1 commission rate schedule" },
-  { label: "Import your first policies", description: "At least 1 policy record" },
-  { label: "Invite your first agent", description: "At least 1 invite sent" },
+  { label: "Import your agent roster", description: "Owners only. Upload your team hierarchy via CSV." },
+  { label: "Import commission levels", description: "Owners only. Upload your carrier comp grids." },
+  { label: "Import your first policies", description: "Owners and managers. Upload carrier policy reports to populate your book of business." },
+  { label: "Invite your first agent", description: "Send invite links so your agents can claim their accounts and enter their writing numbers." },
 ];
 
 const Onboarding = () => {

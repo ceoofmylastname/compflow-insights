@@ -224,7 +224,9 @@ const CommissionLevels = () => {
               <Button variant="outline" size="sm" onClick={handleExport} disabled={filteredLevels.length === 0}>
                 <Download className="mr-2 h-4 w-4" /> Export CSV
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>Import CSV</Button>
+              {canImport && (
+                <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>Import CSV</Button>
+              )}
             </div>
           )}
         </div>

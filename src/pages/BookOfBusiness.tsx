@@ -310,7 +310,13 @@ const BookOfBusiness = () => {
         {isLoading ? (
           <SkeletonTable />
         ) : filteredPolicies.length === 0 ? (
-          <EmptyState title="No policies found" description="Your book of business will appear here after importing policies." />
+          <EmptyState
+            title="No policies found"
+            description={canImport
+              ? "Your book of business will appear here after importing policies."
+              : "Your manager will upload carrier reports which will automatically populate your book of business. You can also post individual deals using the Post a Deal button."
+            }
+          />
         ) : (
           <>
             <div className="card-elevated overflow-hidden">
