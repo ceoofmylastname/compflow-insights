@@ -157,16 +157,6 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-
-  // Gate: if user cannot import, close and show toast
-  if (open && !canImport) {
-    setTimeout(() => {
-      onOpenChange(false);
-      toast.error("Only owners and managers can import data");
-    }, 0);
-    return null;
-  }
-
   /* ---------- helpers ---------- */
   const reset = useCallback(() => {
     setStep(0);
