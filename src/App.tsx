@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -5,33 +6,42 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/use-auth";
 import { FilterProvider } from "@/contexts/FilterContext";
-import Index from "./pages/Index";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import Dashboard from "./pages/Dashboard";
-import Onboarding from "./pages/Onboarding";
-import MyProduction from "./pages/MyProduction";
-import TeamProduction from "./pages/TeamProduction";
-import BookOfBusiness from "./pages/BookOfBusiness";
-import Scoreboard from "./pages/Scoreboard";
-import AgentRoster from "./pages/AgentRoster";
-import CommissionLevels from "./pages/CommissionLevels";
-import Settings from "./pages/Settings";
-import Carriers from "./pages/Carriers";
-import Positions from "./pages/Positions";
-import ActiveAgents from "./pages/ActiveAgents";
-import Drafts from "./pages/Drafts";
-import Payroll from "./pages/Payroll";
-import Contracts from "./pages/Contracts";
-import Integrations from "./pages/Integrations";
-import AuthenticatedLinks from "./pages/AuthenticatedLinks";
-import ArchivedAgents from "./pages/ArchivedAgents";
-import NotFound from "./pages/NotFound";
+
+const Index = lazy(() => import("./pages/Index"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const MyProduction = lazy(() => import("./pages/MyProduction"));
+const TeamProduction = lazy(() => import("./pages/TeamProduction"));
+const BookOfBusiness = lazy(() => import("./pages/BookOfBusiness"));
+const Scoreboard = lazy(() => import("./pages/Scoreboard"));
+const AgentRoster = lazy(() => import("./pages/AgentRoster"));
+const CommissionLevels = lazy(() => import("./pages/CommissionLevels"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Carriers = lazy(() => import("./pages/Carriers"));
+const Positions = lazy(() => import("./pages/Positions"));
+const ActiveAgents = lazy(() => import("./pages/ActiveAgents"));
+const Drafts = lazy(() => import("./pages/Drafts"));
+const Payroll = lazy(() => import("./pages/Payroll"));
+const Contracts = lazy(() => import("./pages/Contracts"));
+const Integrations = lazy(() => import("./pages/Integrations"));
+const AuthenticatedLinks = lazy(() => import("./pages/AuthenticatedLinks"));
+const ArchivedAgents = lazy(() => import("./pages/ArchivedAgents"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
 import ProtectedRoute from "./components/ProtectedRoute";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -41,6 +51,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <FilterProvider>
+          <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>}>
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
@@ -67,6 +78,7 @@ const App = () => (
             <Route path="/archived-agents" element={<ProtectedRoute><ArchivedAgents /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
           </FilterProvider>
         </AuthProvider>
       </BrowserRouter>

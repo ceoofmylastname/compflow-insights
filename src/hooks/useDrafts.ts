@@ -17,5 +17,6 @@ export function useDrafts() {
       if (error) throw error;
       return (data ?? []) as DraftPolicy[];
     },
+    staleTime: 2 * 60 * 1000,
   });
 }

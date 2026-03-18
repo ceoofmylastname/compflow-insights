@@ -42,6 +42,7 @@ export function useCarriers() {
       return (data ?? []) as unknown as Carrier[];
     },
     enabled: !!currentAgent,
+    staleTime: 2 * 60 * 1000,
   });
 }
 
