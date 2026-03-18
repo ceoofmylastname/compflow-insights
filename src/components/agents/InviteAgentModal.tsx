@@ -130,7 +130,7 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
               <Select value={position} onValueChange={setPosition}>
                 <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Manager">Manager</SelectItem>
+                  {canAssignManager && <SelectItem value="Manager">Manager</SelectItem>}
                   <SelectItem value="Agent">Agent</SelectItem>
                 </SelectContent>
               </Select>
