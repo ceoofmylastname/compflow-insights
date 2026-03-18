@@ -457,7 +457,8 @@ function SummaryBar({
   statsMap: Map<string, AgentStats>;
 }) {
   const totals = useMemo(() => {
-    let totalPrem = 0;
+    let totalSubmitted = 0;
+    let totalIssued = 0;
     let totalComm = 0;
     let hotCount = 0;
     let activeCount = 0;
@@ -466,7 +467,8 @@ function SummaryBar({
 
     for (const a of agents) {
       const s = statsMap.get(a.id) ?? DEFAULT_STATS;
-      totalPrem += s.activePrem;
+      totalSubmitted += s.submittedPrem;
+      totalIssued += s.activePrem;
       totalComm += s.commYTD;
       const level = getActivityLevel(s.lastPolicyDaysAgo);
       if (level === "hot") hotCount++;
@@ -475,13 +477,14 @@ function SummaryBar({
       else dormantCount++;
     }
 
-    return { totalPrem, totalComm, totalAgents: agents.length, hotCount, activeCount, idleCount, dormantCount };
+    return { totalSubmitted, totalIssued, totalComm, totalAgents: agents.length, hotCount, activeCount, idleCount, dormantCount };
   }, [agents, statsMap]);
 
   const items = [
     { icon: Users, label: "Total Agents", value: totals.totalAgents.toString(), color: "text-primary" },
-    { icon: DollarSign, label: "Total Premium", value: totals.totalPrem >= 1000 ? `$${(totals.totalPrem / 1000).toFixed(0)}k` : formatCurrency(totals.totalPrem), color: "text-emerald-500" },
-    { icon: TrendingUp, label: "Total Commission", value: totals.totalComm >= 1000 ? `$${(totals.totalComm / 1000).toFixed(0)}k` : formatCurrency(totals.totalComm), color: "text-sky-500" },
+    { icon: DollarSign, label: "Submitted Premium", value: totals.totalSubmitted >= 1000 ? `$${(totals.totalSubmitted / 1000).toFixed(0)}k` : formatCurrency(totals.totalSubmitted), color: "text-sky-500" },
+    { icon: DollarSign, label: "Issued Premium", value: totals.totalIssued >= 1000 ? `$${(totals.totalIssued / 1000).toFixed(0)}k` : formatCurrency(totals.totalIssued), color: "text-emerald-500" },
+    { icon: TrendingUp, label: "Total Commission", value: totals.totalComm >= 1000 ? `$${(totals.totalComm / 1000).toFixed(0)}k` : formatCurrency(totals.totalComm), color: "text-amber-500" },
   ];
 
   const activityPills = [
