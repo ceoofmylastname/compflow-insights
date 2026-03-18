@@ -202,6 +202,15 @@ const AgentRoster = () => {
                 >
                   <Archive className="mr-2 h-3.5 w-3.5" /> Archive
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => {
+                    if (!confirm(`Permanently delete ${r.first_name} ${r.last_name}? This action cannot be undone.`)) return;
+                    deleteAgent.mutate(r.id);
+                  }}
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+                </DropdownMenuItem>
               </>
             )}
           </DropdownMenuContent>

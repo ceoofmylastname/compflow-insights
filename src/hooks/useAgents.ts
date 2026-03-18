@@ -87,6 +87,26 @@ export function useRestoreAgent() {
   });
 }
 
+export function useDeleteAgent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (agentId: string) => {
+      const { error } = await supabase
+        .from("agents")
+        .delete()
+        .eq("id", agentId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.agents] });
+      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.archivedAgents] });
+      toast.success("Agent permanently deleted");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
 export function useDownlineAgents(currentAgentId?: string) {
   const query = useAgents();
   const downline = (query.data ?? []).filter((a) => a.id !== currentAgentId);
