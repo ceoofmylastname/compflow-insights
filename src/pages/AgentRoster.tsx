@@ -40,6 +40,7 @@ const AgentRoster = () => {
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
   const archiveAgent = useArchiveAgent();
+  const deleteAgent = useDeleteAgent();
   const { positions: positionOptions } = usePositionOptions();
   const { data: policiesRaw } = usePolicies({ status: ["Active"] });
   const policies = getPoliciesArray(policiesRaw);
