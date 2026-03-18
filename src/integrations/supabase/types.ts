@@ -22,10 +22,6 @@ export type Database = {
           contract_type: string
           created_at: string
           id: string
-          loa_upline_agent_id: string | null
-          loa_upline_agent_number: string | null
-          notes: string | null
-          referral_code: string | null
           start_date: string | null
           status: string
           tenant_id: string
@@ -37,10 +33,6 @@ export type Database = {
           contract_type?: string
           created_at?: string
           id?: string
-          loa_upline_agent_id?: string | null
-          loa_upline_agent_number?: string | null
-          notes?: string | null
-          referral_code?: string | null
           start_date?: string | null
           status?: string
           tenant_id: string
@@ -52,10 +44,6 @@ export type Database = {
           contract_type?: string
           created_at?: string
           id?: string
-          loa_upline_agent_id?: string | null
-          loa_upline_agent_number?: string | null
-          notes?: string | null
-          referral_code?: string | null
           start_date?: string | null
           status?: string
           tenant_id?: string
@@ -77,71 +65,19 @@ export type Database = {
           },
         ]
       }
-      agent_position_history: {
-        Row: {
-          agent_id: string
-          created_at: string
-          end_date: string | null
-          id: string
-          position_title: string
-          start_date: string
-          tenant_id: string
-          upline_email: string | null
-        }
-        Insert: {
-          agent_id: string
-          created_at?: string
-          end_date?: string | null
-          id?: string
-          position_title: string
-          start_date: string
-          tenant_id: string
-          upline_email?: string | null
-        }
-        Update: {
-          agent_id?: string
-          created_at?: string
-          end_date?: string | null
-          id?: string
-          position_title?: string
-          start_date?: string
-          tenant_id?: string
-          upline_email?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "agent_position_history_agent_id_fkey"
-            columns: ["agent_id"]
-            isOneToOne: false
-            referencedRelation: "agents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "agent_position_history_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       agents: {
         Row: {
           annual_goal: number | null
-          archived_at: string | null
-          archived_by: string | null
           auth_user_id: string | null
           contract_type: string | null
           created_at: string
           email: string
           first_name: string
           id: string
-          is_archived: boolean
           is_owner: boolean
           last_login_at: string | null
           last_name: string
           npn: string | null
-          phone: string | null
           position: string | null
           start_date: string | null
           tenant_id: string
@@ -149,20 +85,16 @@ export type Database = {
         }
         Insert: {
           annual_goal?: number | null
-          archived_at?: string | null
-          archived_by?: string | null
           auth_user_id?: string | null
           contract_type?: string | null
           created_at?: string
           email: string
           first_name: string
           id?: string
-          is_archived?: boolean
           is_owner?: boolean
           last_login_at?: string | null
           last_name: string
           npn?: string | null
-          phone?: string | null
           position?: string | null
           start_date?: string | null
           tenant_id: string
@@ -170,20 +102,16 @@ export type Database = {
         }
         Update: {
           annual_goal?: number | null
-          archived_at?: string | null
-          archived_by?: string | null
           auth_user_id?: string | null
           contract_type?: string | null
           created_at?: string
           email?: string
           first_name?: string
           id?: string
-          is_archived?: boolean
           is_owner?: boolean
           last_login_at?: string | null
           last_name?: string
           npn?: string | null
-          phone?: string | null
           position?: string | null
           start_date?: string | null
           tenant_id?: string
@@ -501,53 +429,6 @@ export type Database = {
           },
         ]
       }
-      commission_rate_adjustments: {
-        Row: {
-          adjustment_rate: number
-          carrier: string
-          created_at: string
-          end_date: string | null
-          id: string
-          position: string
-          product: string
-          reason: string | null
-          start_date: string
-          tenant_id: string
-        }
-        Insert: {
-          adjustment_rate: number
-          carrier: string
-          created_at?: string
-          end_date?: string | null
-          id?: string
-          position: string
-          product: string
-          reason?: string | null
-          start_date: string
-          tenant_id: string
-        }
-        Update: {
-          adjustment_rate?: number
-          carrier?: string
-          created_at?: string
-          end_date?: string | null
-          id?: string
-          position?: string
-          product?: string
-          reason?: string | null
-          start_date?: string
-          tenant_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "commission_rate_adjustments_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       invites: {
         Row: {
           accepted: boolean
@@ -596,68 +477,10 @@ export type Database = {
           },
         ]
       }
-      payroll_runs: {
-        Row: {
-          agent_count: number
-          created_at: string
-          id: string
-          notes: string | null
-          period_end: string
-          period_start: string
-          processed_at: string | null
-          processed_by: string | null
-          status: string
-          tenant_id: string
-          total_amount: number
-        }
-        Insert: {
-          agent_count?: number
-          created_at?: string
-          id?: string
-          notes?: string | null
-          period_end: string
-          period_start: string
-          processed_at?: string | null
-          processed_by?: string | null
-          status?: string
-          tenant_id: string
-          total_amount?: number
-        }
-        Update: {
-          agent_count?: number
-          created_at?: string
-          id?: string
-          notes?: string | null
-          period_end?: string
-          period_start?: string
-          processed_at?: string | null
-          processed_by?: string | null
-          status?: string
-          tenant_id?: string
-          total_amount?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "payroll_runs_processed_by_fkey"
-            columns: ["processed_by"]
-            isOneToOne: false
-            referencedRelation: "agents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "payroll_runs_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       policies: {
         Row: {
           annual_premium: number | null
           application_date: string | null
-          billing_interval: string | null
           carrier: string | null
           chargeback_risk: boolean
           client_dob: string | null
@@ -666,12 +489,9 @@ export type Database = {
           contract_type: string | null
           created_at: string
           custom_fields: Json
-          draft_saved_at: string | null
           effective_date: string | null
           id: string
-          is_draft: boolean
           lead_source: string | null
-          modal_premium: number | null
           notes: string | null
           policy_number: string | null
           product: string | null
@@ -685,7 +505,6 @@ export type Database = {
         Insert: {
           annual_premium?: number | null
           application_date?: string | null
-          billing_interval?: string | null
           carrier?: string | null
           chargeback_risk?: boolean
           client_dob?: string | null
@@ -694,12 +513,9 @@ export type Database = {
           contract_type?: string | null
           created_at?: string
           custom_fields?: Json
-          draft_saved_at?: string | null
           effective_date?: string | null
           id?: string
-          is_draft?: boolean
           lead_source?: string | null
-          modal_premium?: number | null
           notes?: string | null
           policy_number?: string | null
           product?: string | null
@@ -713,7 +529,6 @@ export type Database = {
         Update: {
           annual_premium?: number | null
           application_date?: string | null
-          billing_interval?: string | null
           carrier?: string | null
           chargeback_risk?: boolean
           client_dob?: string | null
@@ -722,12 +537,9 @@ export type Database = {
           contract_type?: string | null
           created_at?: string
           custom_fields?: Json
-          draft_saved_at?: string | null
           effective_date?: string | null
           id?: string
-          is_draft?: boolean
           lead_source?: string | null
-          modal_premium?: number | null
           notes?: string | null
           policy_number?: string | null
           product?: string | null
@@ -748,41 +560,6 @@ export type Database = {
           },
           {
             foreignKeyName: "policies_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      positions: {
-        Row: {
-          created_at: string
-          id: string
-          priority: number
-          tenant_id: string
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          priority?: number
-          tenant_id: string
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          priority?: number
-          tenant_id?: string
-          title?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "positions_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
