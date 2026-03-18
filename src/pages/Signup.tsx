@@ -26,6 +26,7 @@ const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [npn, setNpn] = useState("");
+  const [phone, setPhone] = useState("");
   const [agencyName, setAgencyName] = useState("");
   const [loading, setLoading] = useState(false);
   const [invite, setInvite] = useState<InviteData | null>(null);
