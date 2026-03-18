@@ -27,7 +27,15 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
   const [copied, setCopied] = useState(false);
   const { data: currentAgent } = useCurrentAgent();
   const { positions: positionOptions } = usePositionOptions();
+  const { data: agents } = useAgents();
   const queryClient = useQueryClient();
+
+  // Determine inviter role: owner, manager (has downline), or agent
+  const isOwner = currentAgent?.is_owner === true;
+  const isManager = !isOwner && (agents ?? []).some(
+    (a) => a.upline_email === currentAgent?.email
+  );
+  const canAssignManager = isOwner || isManager;
 
   const handleSubmit = async () => {
     if (!email || !currentAgent) return;
