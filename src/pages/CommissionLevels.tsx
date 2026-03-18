@@ -23,6 +23,7 @@ import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { usePositionOptions } from "@/hooks/usePositions";
 import { useRateAdjustments, useCreateRateAdjustment, useDeleteRateAdjustment } from "@/hooks/useRateAdjustments";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCanImport } from "@/hooks/useCanImport";
 
 interface CarrierGroup {
   carrier: string;
