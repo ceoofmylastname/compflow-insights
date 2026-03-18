@@ -97,6 +97,7 @@ const Signup = () => {
             last_name: lastName,
             email,
             npn: npn || null,
+            phone: phone || null,
             upline_email: invite.invitee_upline_email,
             is_owner: false,
             start_date: new Date().toISOString().split("T")[0],
