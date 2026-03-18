@@ -117,16 +117,14 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
             </div>
             <div>
               <Label>Position</Label>
-              {positionOptions.length > 0 ? (
-                <Select value={position} onValueChange={setPosition}>
-                  <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
-                  <SelectContent>
-                    {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="e.g. Agent, Manager" />
-              )}
+              <Select value={position} onValueChange={setPosition}>
+                <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Manager">Manager</SelectItem>
+                  <SelectItem value="Agent">Agent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             </div>
             <div>
               <Label>Contract Type</Label>
