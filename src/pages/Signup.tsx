@@ -127,17 +127,15 @@ const Signup = () => {
           .maybeSingle();
 
         if (unclaimedAgent) {
-          // Claim the existing agent record
-          await supabase
-            .from("agents")
-            .update({
-              auth_user_id: userId,
-              first_name: firstName || undefined,
-              last_name: lastName || undefined,
-              npn: npn || undefined,
-              phone: phone || undefined,
-            })
-            .eq("id", unclaimedAgent.id);
+          // Claim the existing agent record via security definer function
+          await supabase.rpc("claim_agent_record", {
+            p_agent_email: email,
+            p_user_id: userId,
+            p_first_name: firstName || null,
+            p_last_name: lastName || null,
+            p_npn: npn || null,
+            p_phone: phone || null,
+          });
 
           toast.success("Account created! Welcome to the team.");
           navigate("/dashboard");

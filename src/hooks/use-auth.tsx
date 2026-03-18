@@ -33,10 +33,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const userEmail = session.user.email;
           if (userEmail) {
             supabase
-              .from("agents")
-              .update({ auth_user_id: session.user.id })
-              .eq("email", userEmail)
-              .is("auth_user_id", null)
+              .rpc("claim_agent_record", {
+                p_agent_email: userEmail,
+                p_user_id: session.user.id,
+              })
               .then(() => {});
           }
 
