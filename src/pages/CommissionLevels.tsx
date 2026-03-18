@@ -37,6 +37,7 @@ const CommissionLevels = () => {
   const { data: levels, isLoading, error, refetch } = useCommissionLevels();
   const queryClient = useQueryClient();
   const isOwner = currentAgent?.is_owner ?? false;
+  const { canImport } = useCanImport();
 
   const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState<CommissionLevel | null>(null);
