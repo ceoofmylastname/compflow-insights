@@ -17,7 +17,7 @@ const ForgotPassword = () => {
     e.preventDefault();
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `https://${import.meta.env.VITE_APP_HOSTNAME || window.location.host}/reset-password`,
+      redirectTo: `https://${import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com"}/reset-password`,
     });
     setLoading(false);
     if (error) {

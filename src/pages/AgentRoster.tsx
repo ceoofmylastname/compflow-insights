@@ -121,7 +121,7 @@ const AgentRoster = () => {
       toast.error("Failed to create invite link");
       return;
     }
-    const appHost = import.meta.env.VITE_APP_HOSTNAME || window.location.host;
+    const appHost = import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com";
     const url = `https://${appHost}/signup?invite=${token}`;
     await navigator.clipboard.writeText(url);
     toast.success("Invite link copied to clipboard");

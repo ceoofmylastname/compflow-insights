@@ -62,7 +62,7 @@ const Signup = () => {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `https://${import.meta.env.VITE_APP_HOSTNAME || window.location.host}` },
+        options: { emailRedirectTo: `https://${import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com"}` },
       });
 
       if (authError) throw authError;
