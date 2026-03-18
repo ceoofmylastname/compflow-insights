@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { useAgents, useArchiveAgent, Agent } from "@/hooks/useAgents";
+import { useAgents, useArchiveAgent, useDeleteAgent, Agent } from "@/hooks/useAgents";
 import { usePolicies, getPoliciesArray } from "@/hooks/usePolicies";
 import { useCommissionPayouts } from "@/hooks/useCommissionPayouts";
 import { useAgentContracts, useCreateAgentContract, useDeleteAgentContract } from "@/hooks/useAgentContracts";
