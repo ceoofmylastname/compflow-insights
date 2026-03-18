@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   LayoutDashboard,
+  Shield,
   FileText,
   Users,
   Trophy,
