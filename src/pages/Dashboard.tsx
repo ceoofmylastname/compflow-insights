@@ -49,6 +49,7 @@ const Dashboard = () => {
   });
 
   const { carriers: carrierList } = useCarrierOptions();
+  const { canImport } = useCanImport();
 
   // Recent policies (last 5)
   const { data: recentPoliciesRaw } = usePolicies({ limit: 5 });
