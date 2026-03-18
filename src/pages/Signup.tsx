@@ -84,9 +84,9 @@ const Signup = () => {
 
         if (existingAgent) {
           // Claim existing agent record
-          await supabase
+            await supabase
             .from("agents")
-            .update({ auth_user_id: userId, first_name: firstName || undefined, last_name: lastName || undefined, npn: npn || undefined })
+            .update({ auth_user_id: userId, first_name: firstName || undefined, last_name: lastName || undefined, npn: npn || undefined, phone: phone || undefined })
             .eq("id", existingAgent.id);
         } else {
           // No pre-existing agent row — create one under the invite's tenant
