@@ -621,6 +621,7 @@ export type Database = {
         Row: {
           annual_premium: number | null
           application_date: string | null
+          billing_interval: string | null
           carrier: string | null
           chargeback_risk: boolean
           client_dob: string | null
@@ -634,6 +635,7 @@ export type Database = {
           id: string
           is_draft: boolean
           lead_source: string | null
+          modal_premium: number | null
           notes: string | null
           policy_number: string | null
           product: string | null
@@ -647,6 +649,7 @@ export type Database = {
         Insert: {
           annual_premium?: number | null
           application_date?: string | null
+          billing_interval?: string | null
           carrier?: string | null
           chargeback_risk?: boolean
           client_dob?: string | null
@@ -660,6 +663,7 @@ export type Database = {
           id?: string
           is_draft?: boolean
           lead_source?: string | null
+          modal_premium?: number | null
           notes?: string | null
           policy_number?: string | null
           product?: string | null
@@ -673,6 +677,7 @@ export type Database = {
         Update: {
           annual_premium?: number | null
           application_date?: string | null
+          billing_interval?: string | null
           carrier?: string | null
           chargeback_risk?: boolean
           client_dob?: string | null
@@ -686,6 +691,7 @@ export type Database = {
           id?: string
           is_draft?: boolean
           lead_source?: string | null
+          modal_premium?: number | null
           notes?: string | null
           policy_number?: string | null
           product?: string | null
