@@ -125,7 +125,6 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
                 </SelectContent>
               </Select>
             </div>
-            </div>
             <div>
               <Label>Contract Type</Label>
               <Select value={contractType} onValueChange={setContractType}>
