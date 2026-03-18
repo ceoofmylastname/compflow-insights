@@ -23,6 +23,7 @@ import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { usePositionOptions } from "@/hooks/usePositions";
 import { useRateAdjustments, useCreateRateAdjustment, useDeleteRateAdjustment } from "@/hooks/useRateAdjustments";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCanImport } from "@/hooks/useCanImport";
 
 interface CarrierGroup {
   carrier: string;
@@ -36,6 +37,7 @@ const CommissionLevels = () => {
   const { data: levels, isLoading, error, refetch } = useCommissionLevels();
   const queryClient = useQueryClient();
   const isOwner = currentAgent?.is_owner ?? false;
+  const { canImport } = useCanImport();
 
   const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState<CommissionLevel | null>(null);
@@ -222,7 +224,9 @@ const CommissionLevels = () => {
               <Button variant="outline" size="sm" onClick={handleExport} disabled={filteredLevels.length === 0}>
                 <Download className="mr-2 h-4 w-4" /> Export CSV
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>Import CSV</Button>
+              {canImport && (
+                <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>Import CSV</Button>
+              )}
             </div>
           )}
         </div>

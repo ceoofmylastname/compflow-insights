@@ -20,6 +20,7 @@ import { PostDealModal } from "@/components/policies/PostDealModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
+import { useCanImport } from "@/hooks/useCanImport";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
@@ -48,6 +49,7 @@ const Dashboard = () => {
   });
 
   const { carriers: carrierList } = useCarrierOptions();
+  const { canImport } = useCanImport();
 
   // Recent policies (last 5)
   const { data: recentPoliciesRaw } = usePolicies({ limit: 5 });
@@ -165,9 +167,11 @@ const Dashboard = () => {
             <Button variant="outline" size="sm" onClick={() => setPostDealOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" /> Post a Deal
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-              <Upload className="mr-2 h-4 w-4" /> Import
-            </Button>
+            {canImport && (
+              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" /> Import
+              </Button>
+            )}
             <Button size="sm" className="btn-primary-elevated" onClick={() => setInviteOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" /> Invite Agent
             </Button>

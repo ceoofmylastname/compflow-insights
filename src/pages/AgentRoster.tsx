@@ -27,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { OrgTree } from "@/components/agents/OrgTree";
+import { useCanImport } from "@/hooks/useCanImport";
 
 const AgentRoster = () => {
   const [viewMode, setViewMode] = useState<"table" | "orgchart">("table");
@@ -48,6 +49,7 @@ const AgentRoster = () => {
   const queryClient = useQueryClient();
 
   const isOwner = currentAgent?.is_owner ?? false;
+  const { canImport } = useCanImport();
 
   const downline = useMemo(() => {
     if (!agents || !currentAgent) return [];
@@ -234,9 +236,11 @@ const AgentRoster = () => {
                 <TabsTrigger value="orgchart">Org Chart</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button variant="outline" size="sm" onClick={() => downloadTemplate("agents")}>
-              <Download className="mr-2 h-4 w-4" /> Template
-            </Button>
+            {canImport && (
+              <Button variant="outline" size="sm" onClick={() => downloadTemplate("agents")}>
+                <Download className="mr-2 h-4 w-4" /> Template
+              </Button>
+            )}
             <Button size="sm" className="btn-primary-elevated" onClick={() => setInviteOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" /> Invite Agent
             </Button>

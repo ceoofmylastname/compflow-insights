@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { addDays, isValid, parseISO } from "date-fns";
 import { PolicyImportWizard } from "@/components/import/PolicyImportWizard";
+import { useCanImport } from "@/hooks/useCanImport";
 
 interface CSVImportModalProps {
   open: boolean;
@@ -42,6 +43,7 @@ interface SkippedRow {
 }
 
 export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModalProps) {
+  const { canImport } = useCanImport();
   const [tab, setTab] = useState(defaultTab || "agents");
   const [policyWizardOpen, setPolicyWizardOpen] = useState(false);
   const [step, setStep] = useState<Step>("upload");
@@ -387,6 +389,9 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     ];
     downloadCSV("import-errors.csv", rowsToCSV(headers, rows));
   };
+
+  // Gate: if user cannot import, don't render
+  if (!canImport) return null;
 
   return (
     <>

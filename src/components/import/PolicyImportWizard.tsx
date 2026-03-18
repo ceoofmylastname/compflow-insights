@@ -63,6 +63,7 @@ import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useCanImport } from "@/hooks/useCanImport";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -116,6 +117,7 @@ const FIELD_LABELS: Record<string, string> = {
 /* ------------------------------------------------------------------ */
 
 export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardProps) {
+  const { canImport } = useCanImport();
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents } = useAgents();
   const { data: carrierProfiles } = useCarrierProfiles();
@@ -155,7 +157,6 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-
   /* ---------- helpers ---------- */
   const reset = useCallback(() => {
     setStep(0);
@@ -579,6 +580,8 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
+  // Gate: if user cannot import, don't render
+  if (!canImport) return null;
 
   return (
     <Dialog
