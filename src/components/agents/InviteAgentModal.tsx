@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { usePositionOptions } from "@/hooks/usePositions";
+import { useAgents } from "@/hooks/useAgents";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, Check } from "lucide-react";
