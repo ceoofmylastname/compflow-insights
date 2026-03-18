@@ -49,6 +49,7 @@ const AgentRoster = () => {
   const queryClient = useQueryClient();
 
   const isOwner = currentAgent?.is_owner ?? false;
+  const { canImport } = useCanImport();
 
   const downline = useMemo(() => {
     if (!agents || !currentAgent) return [];
