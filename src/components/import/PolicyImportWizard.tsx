@@ -580,6 +580,8 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
+  // Gate: if user cannot import, don't render
+  if (!canImport) return null;
 
   return (
     <Dialog
