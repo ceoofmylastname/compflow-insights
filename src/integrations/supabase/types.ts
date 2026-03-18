@@ -22,6 +22,7 @@ export type Database = {
           contract_type: string
           created_at: string
           id: string
+          referral_code: string | null
           start_date: string | null
           status: string
           tenant_id: string
@@ -33,6 +34,7 @@ export type Database = {
           contract_type?: string
           created_at?: string
           id?: string
+          referral_code?: string | null
           start_date?: string | null
           status?: string
           tenant_id: string
@@ -44,6 +46,7 @@ export type Database = {
           contract_type?: string
           created_at?: string
           id?: string
+          referral_code?: string | null
           start_date?: string | null
           status?: string
           tenant_id?: string
@@ -81,6 +84,7 @@ export type Database = {
           last_login_at: string | null
           last_name: string
           npn: string | null
+          phone: string | null
           position: string | null
           start_date: string | null
           tenant_id: string
@@ -101,6 +105,7 @@ export type Database = {
           last_login_at?: string | null
           last_name: string
           npn?: string | null
+          phone?: string | null
           position?: string | null
           start_date?: string | null
           tenant_id: string
@@ -121,6 +126,7 @@ export type Database = {
           last_login_at?: string | null
           last_name?: string
           npn?: string | null
+          phone?: string | null
           position?: string | null
           start_date?: string | null
           tenant_id?: string
@@ -438,6 +444,53 @@ export type Database = {
           },
         ]
       }
+      commission_rate_adjustments: {
+        Row: {
+          adjustment_rate: number
+          carrier: string
+          created_at: string
+          end_date: string | null
+          id: string
+          position: string
+          product: string
+          reason: string | null
+          start_date: string
+          tenant_id: string
+        }
+        Insert: {
+          adjustment_rate: number
+          carrier: string
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          position: string
+          product: string
+          reason?: string | null
+          start_date: string
+          tenant_id: string
+        }
+        Update: {
+          adjustment_rate?: number
+          carrier?: string
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          position?: string
+          product?: string
+          reason?: string | null
+          start_date?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commission_rate_adjustments_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invites: {
         Row: {
           accepted: boolean
@@ -486,6 +539,63 @@ export type Database = {
           },
         ]
       }
+      payroll_runs: {
+        Row: {
+          agent_count: number
+          created_at: string
+          id: string
+          notes: string | null
+          period_end: string
+          period_start: string
+          processed_at: string | null
+          processed_by: string | null
+          status: string
+          tenant_id: string
+          total_amount: number
+        }
+        Insert: {
+          agent_count?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          period_end: string
+          period_start: string
+          processed_at?: string | null
+          processed_by?: string | null
+          status?: string
+          tenant_id: string
+          total_amount?: number
+        }
+        Update: {
+          agent_count?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          period_end?: string
+          period_start?: string
+          processed_at?: string | null
+          processed_by?: string | null
+          status?: string
+          tenant_id?: string
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payroll_runs_processed_by_fkey"
+            columns: ["processed_by"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_runs_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       policies: {
         Row: {
           annual_premium: number | null
@@ -498,8 +608,10 @@ export type Database = {
           contract_type: string | null
           created_at: string
           custom_fields: Json
+          draft_saved_at: string | null
           effective_date: string | null
           id: string
+          is_draft: boolean
           lead_source: string | null
           notes: string | null
           policy_number: string | null
@@ -522,8 +634,10 @@ export type Database = {
           contract_type?: string | null
           created_at?: string
           custom_fields?: Json
+          draft_saved_at?: string | null
           effective_date?: string | null
           id?: string
+          is_draft?: boolean
           lead_source?: string | null
           notes?: string | null
           policy_number?: string | null
@@ -546,8 +660,10 @@ export type Database = {
           contract_type?: string | null
           created_at?: string
           custom_fields?: Json
+          draft_saved_at?: string | null
           effective_date?: string | null
           id?: string
+          is_draft?: boolean
           lead_source?: string | null
           notes?: string | null
           policy_number?: string | null
@@ -569,6 +685,38 @@ export type Database = {
           },
           {
             foreignKeyName: "policies_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      positions: {
+        Row: {
+          created_at: string
+          id: string
+          priority: number
+          tenant_id: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          priority?: number
+          tenant_id: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          priority?: number
+          tenant_id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "positions_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
