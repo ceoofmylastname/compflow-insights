@@ -71,6 +71,15 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     return null;
   }
 
+  // Gate: if user cannot import, close modal and show toast
+  if (open && !canImport) {
+    setTimeout(() => {
+      onOpenChange(false);
+      toast.error("Only owners and managers can import data");
+    }, 0);
+    return null;
+  }
+
   const systemFields = tab === "agents" ? AGENT_FIELDS : tab === "commissions" ? COMMISSION_FIELDS : POLICY_FIELDS;
 
   const reset = () => {
