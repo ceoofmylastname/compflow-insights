@@ -225,6 +225,10 @@ const Signup = () => {
               <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input id="phone" type="tel" placeholder="(555) 123-4567" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="npn">NPN (National Producer Number)</Label>
               <Input id="npn" placeholder="12345678" value={npn} onChange={(e) => setNpn(e.target.value)} />
             </div>
