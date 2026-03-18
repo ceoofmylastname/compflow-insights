@@ -159,6 +159,37 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-2">
+        {isSuperAdmin && (
+          <SidebarGroup className="py-1">
+            {!collapsed && (
+              <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-primary">
+                Platform Admin
+              </p>
+            )}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location.pathname === "/super-admin"}>
+                    <NavLink
+                      to="/super-admin"
+                      end
+                      className={cn(
+                        "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                        location.pathname.startsWith("/super-admin")
+                          ? "bg-primary/10 text-sidebar-accent-foreground border-l-2 border-primary"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                      )}
+                      activeClassName=""
+                    >
+                      <Shield className={cn("h-4 w-4 shrink-0 transition-all duration-200", location.pathname.startsWith("/super-admin") && "text-primary drop-shadow-[0_0_6px_hsl(var(--primary)/0.5)]")} />
+                      {!collapsed && <span>All Accounts</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {navSections.map((section) => {
           const visibleItems = section.items.filter((item) => !item.ownerOnly || isOwner);
           if (visibleItems.length === 0) return null;
