@@ -50,6 +50,7 @@ const BookOfBusiness = () => {
 
   const queryClient = useQueryClient();
   const { data: currentAgent } = useCurrentAgent();
+  const { canImport } = useCanImport();
 
   useEffect(() => {
     const t = setTimeout(() => {
