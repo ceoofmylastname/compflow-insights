@@ -857,6 +857,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_agent_record: {
+        Args: {
+          p_agent_email: string
+          p_first_name?: string
+          p_last_name?: string
+          p_npn?: string
+          p_phone?: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       flag_chargeback_risk: { Args: never; Returns: undefined }
       get_agent_tenant_id_secure: {
         Args: { _user_id: string }
