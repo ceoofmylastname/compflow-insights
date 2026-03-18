@@ -112,30 +112,54 @@ const Signup = () => {
         toast.success("Account created! Welcome to the team.");
         navigate("/dashboard");
       } else {
-        // Owner signup flow: create tenant + owner agent
-        const { data: tenant, error: tenantError } = await supabase
-          .from("tenants")
-          .insert({ name: agencyName })
-          .select("id")
-          .single();
+        // Check if there's an unclaimed agent record with this email (added by owner to roster)
+        const { data: unclaimedAgent } = await supabase
+          .from("agents")
+          .select("id, tenant_id")
+          .eq("email", email)
+          .is("auth_user_id", null)
+          .maybeSingle();
 
-        if (tenantError) throw tenantError;
+        if (unclaimedAgent) {
+          // Claim the existing agent record
+          await supabase
+            .from("agents")
+            .update({
+              auth_user_id: userId,
+              first_name: firstName || undefined,
+              last_name: lastName || undefined,
+              npn: npn || undefined,
+            })
+            .eq("id", unclaimedAgent.id);
 
-        const { error: agentError } = await supabase.from("agents").insert({
-          tenant_id: tenant.id,
-          auth_user_id: userId,
-          first_name: firstName,
-          last_name: lastName,
-          email,
-          npn: npn || null,
-          is_owner: true,
-          start_date: new Date().toISOString().split("T")[0],
-        });
+          toast.success("Account created! Welcome to the team.");
+          navigate("/dashboard");
+        } else {
+          // Owner signup flow: create tenant + owner agent
+          const { data: tenant, error: tenantError } = await supabase
+            .from("tenants")
+            .insert({ name: agencyName })
+            .select("id")
+            .single();
 
-        if (agentError) throw agentError;
+          if (tenantError) throw tenantError;
 
-        toast.success("Account created!");
-        navigate("/onboarding");
+          const { error: agentError } = await supabase.from("agents").insert({
+            tenant_id: tenant.id,
+            auth_user_id: userId,
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            npn: npn || null,
+            is_owner: true,
+            start_date: new Date().toISOString().split("T")[0],
+          });
+
+          if (agentError) throw agentError;
+
+          toast.success("Account created!");
+          navigate("/onboarding");
+        }
       }
     } catch (err: any) {
       toast.error(err.message || "Signup failed");

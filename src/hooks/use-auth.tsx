@@ -29,6 +29,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
 
         if (_event === "SIGNED_IN" && session?.user) {
+          // Safety net: auto-link unclaimed agent records on login
+          const userEmail = session.user.email;
+          if (userEmail) {
+            supabase
+              .from("agents")
+              .update({ auth_user_id: session.user.id })
+              .eq("email", userEmail)
+              .is("auth_user_id", null)
+              .then(() => {});
+          }
+
           supabase
             .from("agents")
             .update({ last_login_at: new Date().toISOString() })
