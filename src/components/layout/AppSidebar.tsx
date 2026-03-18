@@ -73,6 +73,7 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
   const { data: allCarriers } = useCarriers();
   const { data: myContracts } = useAgentContracts(currentAgent?.id);
   const { data: drafts } = useDrafts();
+  const { isSuperAdmin } = useSuperAdmin();
   const isOwner = currentAgent?.is_owner ?? false;
   const draftCount = drafts?.length ?? 0;
 
