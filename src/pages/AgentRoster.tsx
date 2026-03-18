@@ -27,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { OrgTree } from "@/components/agents/OrgTree";
+import { useCanImport } from "@/hooks/useCanImport";
 
 const AgentRoster = () => {
   const [viewMode, setViewMode] = useState<"table" | "orgchart">("table");
