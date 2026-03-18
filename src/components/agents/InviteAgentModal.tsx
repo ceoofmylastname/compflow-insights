@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { usePositionOptions } from "@/hooks/usePositions";
+import { useAgents } from "@/hooks/useAgents";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, Check } from "lucide-react";
@@ -26,7 +27,15 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
   const [copied, setCopied] = useState(false);
   const { data: currentAgent } = useCurrentAgent();
   const { positions: positionOptions } = usePositionOptions();
+  const { data: agents } = useAgents();
   const queryClient = useQueryClient();
+
+  // Determine inviter role: owner, manager (has downline), or agent
+  const isOwner = currentAgent?.is_owner === true;
+  const isManager = !isOwner && (agents ?? []).some(
+    (a) => a.upline_email === currentAgent?.email
+  );
+  const canAssignManager = isOwner || isManager;
 
   const handleSubmit = async () => {
     if (!email || !currentAgent) return;
@@ -121,7 +130,7 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
               <Select value={position} onValueChange={setPosition}>
                 <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Manager">Manager</SelectItem>
+                  {canAssignManager && <SelectItem value="Manager">Manager</SelectItem>}
                   <SelectItem value="Agent">Agent</SelectItem>
                 </SelectContent>
               </Select>
