@@ -251,6 +251,11 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
               <p className="text-sm font-medium text-sidebar-foreground truncate">
                 {currentAgent ? `${currentAgent.first_name} ${currentAgent.last_name}` : ""}
               </p>
+              {isSuperAdmin && (
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                  Platform Admin
+                </span>
+              )}
               <p className="text-[11px] text-sidebar-muted truncate">{user?.email}</p>
             </div>
           </div>
