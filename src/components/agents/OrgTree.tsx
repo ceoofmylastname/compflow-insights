@@ -265,17 +265,25 @@ const NodeCard = memo(function NodeCard({
         </div>
 
         {/* Stats grid */}
-        <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-muted/50 p-2">
+        <div className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-muted/50 p-2">
           <div className="text-center">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Premium</p>
+            <p className="text-[8px] uppercase tracking-wider text-sky-500 font-medium">Submitted</p>
+            <p className="text-[11px] font-bold text-foreground mt-0.5">
+              {stats.submittedPrem >= 1000
+                ? `$${(stats.submittedPrem / 1000).toFixed(1)}k`
+                : formatCurrency(stats.submittedPrem)}
+            </p>
+          </div>
+          <div className="text-center border-x border-border/50">
+            <p className="text-[8px] uppercase tracking-wider text-emerald-500 font-medium">Issued</p>
             <p className="text-[11px] font-bold text-foreground mt-0.5">
               {stats.activePrem >= 1000
                 ? `$${(stats.activePrem / 1000).toFixed(1)}k`
                 : formatCurrency(stats.activePrem)}
             </p>
           </div>
-          <div className="text-center border-x border-border/50">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Comm</p>
+          <div className="text-center border-r border-border/50">
+            <p className="text-[8px] uppercase tracking-wider text-muted-foreground font-medium">Comm</p>
             <p className="text-[11px] font-bold text-foreground mt-0.5">
               {stats.commYTD >= 1000
                 ? `$${(stats.commYTD / 1000).toFixed(1)}k`
@@ -283,7 +291,7 @@ const NodeCard = memo(function NodeCard({
             </p>
           </div>
           <div className="text-center">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Reports</p>
+            <p className="text-[8px] uppercase tracking-wider text-muted-foreground font-medium">Reports</p>
             <p className="text-[11px] font-bold text-foreground mt-0.5">{stats.directReports}</p>
           </div>
         </div>
