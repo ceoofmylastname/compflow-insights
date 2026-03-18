@@ -40,13 +40,14 @@ interface TreeNode {
 }
 
 interface AgentStats {
+  submittedPrem: number;
   activePrem: number;
   commYTD: number;
   directReports: number;
   lastPolicyDaysAgo: number | null; // null = never wrote
 }
 
-const DEFAULT_STATS: AgentStats = { activePrem: 0, commYTD: 0, directReports: 0, lastPolicyDaysAgo: null };
+const DEFAULT_STATS: AgentStats = { submittedPrem: 0, activePrem: 0, commYTD: 0, directReports: 0, lastPolicyDaysAgo: null };
 
 const MAX_INITIAL_DEPTH = 2;
 const CHILDREN_GRID_THRESHOLD = 8;
