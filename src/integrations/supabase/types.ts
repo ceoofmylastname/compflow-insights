@@ -68,12 +68,15 @@ export type Database = {
       agents: {
         Row: {
           annual_goal: number | null
+          archived_at: string | null
+          archived_by: string | null
           auth_user_id: string | null
           contract_type: string | null
           created_at: string
           email: string
           first_name: string
           id: string
+          is_archived: boolean
           is_owner: boolean
           last_login_at: string | null
           last_name: string
@@ -85,12 +88,15 @@ export type Database = {
         }
         Insert: {
           annual_goal?: number | null
+          archived_at?: string | null
+          archived_by?: string | null
           auth_user_id?: string | null
           contract_type?: string | null
           created_at?: string
           email: string
           first_name: string
           id?: string
+          is_archived?: boolean
           is_owner?: boolean
           last_login_at?: string | null
           last_name: string
@@ -102,12 +108,15 @@ export type Database = {
         }
         Update: {
           annual_goal?: number | null
+          archived_at?: string | null
+          archived_by?: string | null
           auth_user_id?: string | null
           contract_type?: string | null
           created_at?: string
           email?: string
           first_name?: string
           id?: string
+          is_archived?: boolean
           is_owner?: boolean
           last_login_at?: string | null
           last_name?: string
