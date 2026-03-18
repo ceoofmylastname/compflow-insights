@@ -131,6 +131,7 @@ const Signup = () => {
               first_name: firstName || undefined,
               last_name: lastName || undefined,
               npn: npn || undefined,
+              phone: phone || undefined,
             })
             .eq("id", unclaimedAgent.id);
 
