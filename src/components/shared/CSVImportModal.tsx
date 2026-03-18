@@ -390,6 +390,9 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     downloadCSV("import-errors.csv", rowsToCSV(headers, rows));
   };
 
+  // Gate: if user cannot import, don't render
+  if (!canImport) return null;
+
   return (
     <>
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
