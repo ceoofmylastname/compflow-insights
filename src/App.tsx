@@ -30,6 +30,8 @@ const Contracts = lazy(() => import("./pages/Contracts"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const AuthenticatedLinks = lazy(() => import("./pages/AuthenticatedLinks"));
 const ArchivedAgents = lazy(() => import("./pages/ArchivedAgents"));
+const SuperAdmin = lazy(() => import("./pages/SuperAdmin"));
+const SuperAdminTenantDetail = lazy(() => import("./pages/SuperAdminTenantDetail"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 import ProtectedRoute from "./components/ProtectedRoute";
