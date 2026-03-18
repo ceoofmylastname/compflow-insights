@@ -45,15 +45,6 @@ interface SkippedRow {
 export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModalProps) {
   const { canImport } = useCanImport();
   const [tab, setTab] = useState(defaultTab || "agents");
-
-  // Gate: if user cannot import, close modal and show toast
-  if (open && !canImport) {
-    setTimeout(() => {
-      onOpenChange(false);
-      toast.error("Only owners and managers can import data");
-    }, 0);
-    return null;
-  }
   const [policyWizardOpen, setPolicyWizardOpen] = useState(false);
   const [step, setStep] = useState<Step>("upload");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -70,6 +61,15 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
   const { data: agents } = useAgents();
   
   const queryClient = useQueryClient();
+
+  // Gate: if user cannot import, close modal and show toast
+  if (open && !canImport) {
+    setTimeout(() => {
+      onOpenChange(false);
+      toast.error("Only owners and managers can import data");
+    }, 0);
+    return null;
+  }
 
   const systemFields = tab === "agents" ? AGENT_FIELDS : tab === "commissions" ? COMMISSION_FIELDS : POLICY_FIELDS;
 
