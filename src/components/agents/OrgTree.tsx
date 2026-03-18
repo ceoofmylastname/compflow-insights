@@ -655,8 +655,11 @@ export function OrgTree({
   }, []);
 
   /* ---------- stats ---------- */
-  const { data: policiesRaw } = usePolicies({ status: ["Active"] });
-  const activePolicies = getPoliciesArray(policiesRaw);
+  const { data: issuedPoliciesRaw } = usePolicies({ status: ["Active"] });
+  const issuedPolicies = getPoliciesArray(issuedPoliciesRaw);
+
+  const { data: submittedPoliciesRaw } = usePolicies({ status: ["Submitted"] });
+  const submittedPolicies = getPoliciesArray(submittedPoliciesRaw);
 
   // All policies for "last policy" calculation
   const { data: allPoliciesRaw } = usePolicies({});
@@ -670,7 +673,10 @@ export function OrgTree({
     const map = new Map<string, AgentStats>();
     const now = Date.now();
     for (const a of agents) {
-      const activePrem = activePolicies
+      const submittedPrem = submittedPolicies
+        .filter((p) => p.resolved_agent_id === a.id)
+        .reduce((s, p) => s + (p.annual_premium || 0), 0);
+      const activePrem = issuedPolicies
         .filter((p) => p.resolved_agent_id === a.id)
         .reduce((s, p) => s + (p.annual_premium || 0), 0);
       const commYTD = (payouts ?? [])
@@ -692,10 +698,10 @@ export function OrgTree({
         }
       }
 
-      map.set(a.id, { activePrem, commYTD, directReports, lastPolicyDaysAgo });
+      map.set(a.id, { submittedPrem, activePrem, commYTD, directReports, lastPolicyDaysAgo });
     }
     return map;
-  }, [agents, activePolicies, allPolicies, payouts]);
+  }, [agents, issuedPolicies, submittedPolicies, allPolicies, payouts]);
 
   /* ---------- search highlighting ---------- */
   const highlightedIds = useMemo(() => {
