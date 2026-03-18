@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import {
   LayoutDashboard,
+  Shield,
   FileText,
   Users,
   Trophy,
@@ -27,6 +28,7 @@ import CFLogo from "@/components/CFLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
+import { useSuperAdmin } from "@/hooks/useSuperAdmin";
 import { useTenant } from "@/hooks/useTenant";
 import { useCarriers } from "@/hooks/useCarriers";
 import { useAgentContracts } from "@/hooks/useAgentContracts";
@@ -71,6 +73,7 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
   const { data: allCarriers } = useCarriers();
   const { data: myContracts } = useAgentContracts(currentAgent?.id);
   const { data: drafts } = useDrafts();
+  const { isSuperAdmin } = useSuperAdmin();
   const isOwner = currentAgent?.is_owner ?? false;
   const draftCount = drafts?.length ?? 0;
 
@@ -156,6 +159,37 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-2">
+        {isSuperAdmin && (
+          <SidebarGroup className="py-1">
+            {!collapsed && (
+              <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-primary">
+                Platform Admin
+              </p>
+            )}
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location.pathname === "/super-admin"}>
+                    <NavLink
+                      to="/super-admin"
+                      end
+                      className={cn(
+                        "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                        location.pathname.startsWith("/super-admin")
+                          ? "bg-primary/10 text-sidebar-accent-foreground border-l-2 border-primary"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+                      )}
+                      activeClassName=""
+                    >
+                      <Shield className={cn("h-4 w-4 shrink-0 transition-all duration-200", location.pathname.startsWith("/super-admin") && "text-primary drop-shadow-[0_0_6px_hsl(var(--primary)/0.5)]")} />
+                      {!collapsed && <span>All Accounts</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {navSections.map((section) => {
           const visibleItems = section.items.filter((item) => !item.ownerOnly || isOwner);
           if (visibleItems.length === 0) return null;
@@ -217,6 +251,11 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
               <p className="text-sm font-medium text-sidebar-foreground truncate">
                 {currentAgent ? `${currentAgent.first_name} ${currentAgent.last_name}` : ""}
               </p>
+              {isSuperAdmin && (
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                  Platform Admin
+                </span>
+              )}
               <p className="text-[11px] text-sidebar-muted truncate">{user?.email}</p>
             </div>
           </div>

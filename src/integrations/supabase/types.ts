@@ -596,6 +596,27 @@ export type Database = {
           },
         ]
       }
+      platform_admins: {
+        Row: {
+          auth_user_id: string
+          created_at: string
+          email: string
+          id: string
+        }
+        Insert: {
+          auth_user_id: string
+          created_at?: string
+          email: string
+          id?: string
+        }
+        Update: {
+          auth_user_id?: string
+          created_at?: string
+          email?: string
+          id?: string
+        }
+        Relationships: []
+      }
       policies: {
         Row: {
           annual_premium: number | null

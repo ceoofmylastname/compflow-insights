@@ -30,6 +30,8 @@ const Contracts = lazy(() => import("./pages/Contracts"));
 const Integrations = lazy(() => import("./pages/Integrations"));
 const AuthenticatedLinks = lazy(() => import("./pages/AuthenticatedLinks"));
 const ArchivedAgents = lazy(() => import("./pages/ArchivedAgents"));
+const SuperAdmin = lazy(() => import("./pages/SuperAdmin"));
+const SuperAdminTenantDetail = lazy(() => import("./pages/SuperAdminTenantDetail"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -76,6 +78,8 @@ const App = () => (
             <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
             <Route path="/authenticated-links" element={<ProtectedRoute><AuthenticatedLinks /></ProtectedRoute>} />
             <Route path="/archived-agents" element={<ProtectedRoute><ArchivedAgents /></ProtectedRoute>} />
+            <Route path="/super-admin" element={<ProtectedRoute><SuperAdmin /></ProtectedRoute>} />
+            <Route path="/super-admin/tenant/:tenantId" element={<ProtectedRoute><SuperAdminTenantDetail /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>
