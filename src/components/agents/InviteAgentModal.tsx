@@ -57,7 +57,7 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
       });
       if (agentError) console.warn("Agent pre-create failed (may already exist):", agentError.message);
 
-      const appHost = import.meta.env.VITE_APP_HOSTNAME || window.location.host;
+      const appHost = import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com";
       const url = `https://${appHost}/signup?invite=${token}`;
       setInviteUrl(url);
       toast.success(`Invite created for ${email}`);
