@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { addDays, isValid, parseISO } from "date-fns";
 import { PolicyImportWizard } from "@/components/import/PolicyImportWizard";
+import { useCanImport } from "@/hooks/useCanImport";
 
 interface CSVImportModalProps {
   open: boolean;
