@@ -44,6 +44,7 @@ const BookOfBusiness = () => {
   const [showPhone, setShowPhone] = useState(false);
   const [hasRiskFilter, setHasRiskFilter] = useState(false);
   const [loaOnlyFilter, setLoaOnlyFilter] = useState(false);
+  const [needsReviewFilter, setNeedsReviewFilter] = useState(false);
   const [leadSourceFilter, setLeadSourceFilter] = useState("");
   const [contractTypeFilter, setContractTypeFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -104,7 +105,7 @@ const BookOfBusiness = () => {
     return [...new Set(allPolicies.map((p) => p.lead_source).filter(Boolean))].sort() as string[];
   }, [allPolicies]);
 
-  // Apply client-side chargeback risk filter
+  // Apply client-side filters (chargeback risk, LOA, needs review)
   const filteredPolicies = useMemo(() => {
     let result = policies;
     if (hasRiskFilter) {
@@ -113,8 +114,11 @@ const BookOfBusiness = () => {
     if (loaOnlyFilter) {
       result = result.filter((p) => p.contract_type === "LOA");
     }
+    if (needsReviewFilter) {
+      result = result.filter((p) => (p as any).needs_review === true);
+    }
     return result;
-  }, [policies, hasRiskFilter, loaOnlyFilter]);
+  }, [policies, hasRiskFilter, loaOnlyFilter, needsReviewFilter]);
 
   const handleStatusChange = async (policyId: string, newStatus: string) => {
     const policy = policies.find(p => p.id === policyId);
@@ -182,6 +186,8 @@ const BookOfBusiness = () => {
       label: "Status",
       render: (r) => {
         const hasRisk = r.chargeback_risk === true;
+        const needsReview = (r as any).needs_review === true;
+        const reviewReasons: string[] = (r as any).needs_review_reasons ?? [];
         const statusEl = isOwner ? (
           <div onClick={(e) => e.stopPropagation()}>
             <Select value={r.status || ""} onValueChange={(v) => handleStatusChange(r.id, v)}>
@@ -203,6 +209,15 @@ const BookOfBusiness = () => {
             {statusEl}
             {hasRisk && (
               <span title="Chargeback risk"><AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0" /></span>
+            )}
+            {needsReview && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] bg-yellow-100 text-yellow-800 border border-yellow-300"
+                title={reviewReasons.length > 0 ? `Needs review: ${reviewReasons.join(", ")}` : "Needs review"}
+              >
+                Review
+              </Badge>
             )}
           </div>
         );
@@ -340,6 +355,18 @@ const BookOfBusiness = () => {
             />
             <span className="flex items-center gap-1">
               <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" /> Has Risk
+            </span>
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <Checkbox
+              checked={needsReviewFilter}
+              onCheckedChange={(v) => setNeedsReviewFilter(!!v)}
+            />
+            <span className="flex items-center gap-1">
+              <Badge variant="secondary" className="text-[10px] bg-yellow-100 text-yellow-800 border border-yellow-300 px-1 py-0 h-4">
+                Review
+              </Badge>
+              Needs Review
             </span>
           </label>
         </div>

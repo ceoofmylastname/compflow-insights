@@ -81,6 +81,8 @@ interface AgentResolutionRow {
   method: string | null;
   manualAgentId: string;
   saveAsAlias: boolean;
+  /** When email and writing-number resolution disagreed. */
+  conflict?: { emailAgentId: string; writingNumberAgentId: string };
 }
 
 interface ImportResult {
@@ -362,6 +364,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         method: result.method,
         manualAgentId: "",
         saveAsAlias: false,
+        conflict: result.conflict,
       });
     }
 
@@ -372,12 +375,26 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
 
   /* ---------- Step 3 -> 4: Validate ---------- */
   const proceedToValidation = useCallback(() => {
-    // Build resolution lookup
-    const resolutionMap = new Map<string, { agentId: string | null; method: string | null }>();
+    // Build resolution lookup, including any unresolved conflict signal.
+    type ResolutionMapEntry = {
+      agentId: string | null;
+      method: string | null;
+      reasons: string[];
+      warning?: string;
+    };
+    const resolutionMap = new Map<string, ResolutionMapEntry>();
     for (const r of agentResolutions) {
       const agentId = r.manualAgentId || r.resolvedAgentId;
       const method = r.manualAgentId ? "manual" : r.method;
-      resolutionMap.set(r.writingAgentId, { agentId, method });
+      const reasons: string[] = [];
+      let warning: string | undefined;
+      // A manual override resolves a conflict; only flag if no override.
+      if (r.conflict && !r.manualAgentId) {
+        reasons.push("agent_conflict");
+        warning =
+          "Email and writing-number lookups returned different agents. Defaulted to email match; please verify.";
+      }
+      resolutionMap.set(r.writingAgentId, { agentId, method, reasons, warning });
     }
 
     const activeCustomFields = [
@@ -401,14 +418,17 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
 
       const { errors, warnings } = validateImportRow(mapped, i);
 
-      // Resolve agent from our pre-built map
+      // Resolve agent from our pre-built map; surface conflict warnings.
       const wai = mapped.writing_agent_id?.trim();
       let resolvedAgentId: string | null = null;
       let resolutionMethod: string | null = null;
+      const needsReviewReasons: string[] = [];
       if (wai && resolutionMap.has(wai)) {
         const res = resolutionMap.get(wai)!;
         resolvedAgentId = res.agentId;
         resolutionMethod = res.method;
+        if (res.warning) warnings.push(res.warning);
+        for (const reason of res.reasons) needsReviewReasons.push(reason);
       }
 
       built.push({
@@ -419,6 +439,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         resolutionMethod,
         errors,
         warnings,
+        needsReviewReasons,
       });
     }
 
@@ -470,54 +491,142 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         let refsCollectedToUpsert = rawRefsCollected;
         let refsSoldToUpsert = rawRefsSold;
         let previousStatus: string | null = null;
+        const reviewReasons = [...row.needsReviewReasons];
 
-        if (m.policy_number) {
-          const { data: existing } = await supabase
+        // ===== Match resolution: policy_number primary, composite fallback =====
+        type ExistingPolicyRow = {
+          id: string;
+          status: string;
+          annual_premium: number | null;
+          refs_collected: number | null;
+          refs_sold: number | null;
+        };
+        let existingRow: ExistingPolicyRow | null = null;
+
+        if (m.policy_number?.trim()) {
+          const { data } = await supabase
             .from("policies")
-            .select("annual_premium, refs_collected, refs_sold, status")
+            .select("id, status, annual_premium, refs_collected, refs_sold")
             .eq("policy_number", m.policy_number.trim())
             .eq("tenant_id", currentAgent.tenant_id)
             .maybeSingle();
-            
-          if (existing) {
-            previousStatus = existing.status;
-            if (importMode === "additive") {
-              premiumToUpsert = (existing.annual_premium || 0) + rawPremium;
-              refsCollectedToUpsert = (existing.refs_collected || 0) + rawRefsCollected;
-              refsSoldToUpsert = (existing.refs_sold || 0) + rawRefsSold;
+          if (data) existingRow = data as ExistingPolicyRow;
+        }
+
+        // Composite fallback when policy_number missing or didn't match.
+        if (!existingRow) {
+          const wai = m.writing_agent_id?.trim();
+          const cli = m.client_name?.trim();
+          const car = m.carrier?.trim();
+          const appDate = m.application_date?.trim();
+          if (wai && cli && car && appDate) {
+            const { data } = await supabase
+              .from("policies")
+              .select("id, status, annual_premium, refs_collected, refs_sold")
+              .eq("tenant_id", currentAgent.tenant_id)
+              .eq("writing_agent_id", wai)
+              .eq("client_name", cli)
+              .eq("carrier", car)
+              .eq("application_date", appDate);
+
+            const matches = (data ?? []) as ExistingPolicyRow[];
+            if (matches.length === 1) {
+              existingRow = matches[0];
+            } else if (matches.length > 1) {
+              reviewReasons.push("ambiguous_composite_match");
+            } else {
+              // 0 matches via composite — could be a genuinely new policy or
+              // a missing-data case. Per spec, flag for review.
+              reviewReasons.push("composite_match_failed");
             }
+          } else if (!m.policy_number?.trim()) {
+            // No policy_number AND insufficient composite key fields.
+            reviewReasons.push("no_policy_number");
           }
         }
 
-        const { data: policy, error } = await supabase
-          .from("policies")
-          .upsert(
-            {
-              tenant_id: currentAgent.tenant_id,
-              policy_number: m.policy_number?.trim() || null,
-              application_date: m.application_date || null,
-              client_name: m.client_name?.trim() || null,
-              client_phone: m.client_phone?.trim() || null,
-              client_dob: m.client_dob || null,
-              carrier: m.carrier?.trim() || null,
-              product: m.product?.trim() || null,
-              annual_premium: premiumToUpsert,
-              status,
-              contract_type: m.contract_type?.trim() || null,
-              lead_source: m.lead_source?.trim() || null,
-              effective_date: m.effective_date || null,
-              notes: m.notes?.trim() || null,
-              refs_collected: refsCollectedToUpsert,
-              refs_sold: refsSoldToUpsert,
-              resolved_agent_id: resolvedAgentId,
-              custom_fields: Object.keys(row.customFieldValues).length > 0
-                ? row.customFieldValues
-                : {},
-            } as any,
-            { onConflict: "policy_number,tenant_id", ignoreDuplicates: false }
-          )
-          .select()
-          .single();
+        if (existingRow) {
+          previousStatus = existingRow.status;
+          if (importMode === "additive") {
+            premiumToUpsert = (existingRow.annual_premium || 0) + rawPremium;
+            refsCollectedToUpsert = (existingRow.refs_collected || 0) + rawRefsCollected;
+            refsSoldToUpsert = (existingRow.refs_sold || 0) + rawRefsSold;
+          }
+        }
+
+        // ===== Payload construction =====
+        // For UPDATE: only include fields with non-empty CSV values so blank
+        // cells preserve existing DB values. For INSERT: include nulls for
+        // missing fields so the new row is well-formed.
+        const isExistingRow = !!existingRow;
+        const payload: Record<string, unknown> = {
+          tenant_id: currentAgent.tenant_id,
+          policy_number: m.policy_number?.trim() || null,
+          status,
+          annual_premium: premiumToUpsert,
+          refs_collected: refsCollectedToUpsert,
+          refs_sold: refsSoldToUpsert,
+          resolved_agent_id: resolvedAgentId,
+          writing_agent_id: m.writing_agent_id?.trim() || null,
+        };
+
+        const setIfPresentOrInsert = (key: string, value: string | null | undefined) => {
+          const trimmed = typeof value === "string" ? value.trim() : value;
+          if (trimmed) {
+            payload[key] = trimmed;
+          } else if (!isExistingRow) {
+            payload[key] = null;
+          }
+        };
+
+        setIfPresentOrInsert("application_date", m.application_date);
+        setIfPresentOrInsert("client_name", m.client_name);
+        setIfPresentOrInsert("client_phone", m.client_phone);
+        setIfPresentOrInsert("client_dob", m.client_dob);
+        setIfPresentOrInsert("carrier", m.carrier);
+        setIfPresentOrInsert("product", m.product);
+        setIfPresentOrInsert("contract_type", m.contract_type);
+        setIfPresentOrInsert("lead_source", m.lead_source);
+        setIfPresentOrInsert("effective_date", m.effective_date);
+        setIfPresentOrInsert("notes", m.notes);
+
+        if (Object.keys(row.customFieldValues).length > 0) {
+          payload.custom_fields = row.customFieldValues;
+        } else if (!isExistingRow) {
+          payload.custom_fields = {};
+        }
+
+        // needs_review: only stamp when there's a fresh reason this run.
+        // Don't unset an already-true flag from a prior run.
+        if (reviewReasons.length > 0) {
+          payload.needs_review = true;
+          payload.needs_review_reasons = Array.from(new Set(reviewReasons));
+        } else if (!isExistingRow) {
+          payload.needs_review = false;
+          payload.needs_review_reasons = [];
+        }
+
+        // ===== Write =====
+        let policy: { id: string } | null = null;
+        let error: { message: string } | null = null;
+        if (existingRow) {
+          const { data, error: updErr } = await supabase
+            .from("policies")
+            .update(payload as any)
+            .eq("id", existingRow.id)
+            .select("id")
+            .single();
+          policy = data as { id: string } | null;
+          error = updErr;
+        } else {
+          const { data, error: insErr } = await supabase
+            .from("policies")
+            .insert(payload as any)
+            .select("id")
+            .single();
+          policy = data as { id: string } | null;
+          error = insErr;
+        }
 
         if (error) {
           result.skipped++;
@@ -970,25 +1079,36 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
                           </TableCell>
                           <TableCell className="text-xs">{r.carrier}</TableCell>
                           <TableCell>
-                            {r.method ? (
-                              <Badge
-                                variant="secondary"
-                                className={cn(
-                                  "text-[10px]",
-                                  r.resolvedAgentId ? "bg-green-100 text-green-800" : ""
-                                )}
-                              >
-                                {r.method}
-                              </Badge>
-                            ) : r.manualAgentId ? (
-                              <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-800">
-                                manual
-                              </Badge>
-                            ) : (
-                              <Badge variant="destructive" className="text-[10px]">
-                                unresolved
-                              </Badge>
-                            )}
+                            <div className="flex items-center gap-1">
+                              {r.method ? (
+                                <Badge
+                                  variant="secondary"
+                                  className={cn(
+                                    "text-[10px]",
+                                    r.resolvedAgentId ? "bg-green-100 text-green-800" : ""
+                                  )}
+                                >
+                                  {r.method}
+                                </Badge>
+                              ) : r.manualAgentId ? (
+                                <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-800">
+                                  manual
+                                </Badge>
+                              ) : (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  unresolved
+                                </Badge>
+                              )}
+                              {r.conflict && !r.manualAgentId && (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] bg-yellow-100 text-yellow-800"
+                                  title="Email and writing-number lookups returned different agents. Defaulted to email match — use the override to confirm or correct."
+                                >
+                                  <AlertTriangle className="h-2.5 w-2.5 mr-0.5" /> conflict
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs">
                             {resolvedAgent

@@ -31,11 +31,26 @@ export interface ImportRow {
   resolutionMethod: string | null;
   errors: string[];
   warnings: string[];
+  /**
+   * Reasons the imported row should be flagged for human review on Book of
+   * Business. Examples: "agent_conflict" (email vs writing_number disagree),
+   * "ambiguous_policy_match" (composite fallback hit multiple rows).
+   */
+  needsReviewReasons: string[];
 }
 
 export interface AgentResolutionResult {
   agentId: string | null;
   method: "alias" | "npn" | "contract" | "email" | "manual" | null;
+  /**
+   * Populated when the email and writing-number lookups succeeded but
+   * pointed to DIFFERENT agents. The wizard surfaces this as a yellow
+   * warning in Step 4 and writes needs_review=true on the imported row.
+   */
+  conflict?: {
+    emailAgentId: string;
+    writingNumberAgentId: string;
+  };
 }
 
 /** System fields the wizard maps CSV columns to. */
@@ -160,7 +175,17 @@ export function normalizeCarrierName(
 
 /**
  * Resolve a writing_agent_id string to an actual agent UUID.
- * Chain: normalize carrier → carrier_agent_aliases → agents.npn → agent_contracts.agent_number → agents.email
+ *
+ * Resolution order (per project CLAUDE.md):
+ *  1. Manual alias on `carrier_agent_aliases` — if a human has explicitly
+ *     mapped this carrier+writing_agent_id to an agent, that wins outright.
+ *  2. Email AND writing-number (carrier-scoped agent_contracts.agent_number)
+ *     are looked up in parallel. If both hit the SAME agent → assign. If
+ *     both hit DIFFERENT agents → flag a conflict for manual review (the
+ *     spec is "email first, writing number second" — so the conflict.assignment
+ *     defaults to the email match, but the row gets needs_review).
+ *  3. NPN fallback — only consulted if neither email nor writing number
+ *     matched. Some carrier feeds put the NPN in the writing_agent_id column.
  */
 export async function resolveAgent(
   writingAgentId: string,
@@ -172,13 +197,11 @@ export async function resolveAgent(
   if (!writingAgentId.trim()) return { agentId: null, method: null };
 
   const val = writingAgentId.trim();
-
-  // Step 0: Normalize carrier name against the carriers registry
   const normalizedCarrier = carrierNameMap
     ? normalizeCarrierName(carrier, carrierNameMap)
     : carrier;
 
-  // Step 1: carrier_agent_aliases
+  // 1. Manual alias — explicit human override wins
   const { data: alias } = await supabaseClient
     .from("carrier_agent_aliases")
     .select("agent_id")
@@ -191,7 +214,48 @@ export async function resolveAgent(
     return { agentId: alias.agent_id, method: "alias" };
   }
 
-  // Step 2: agents.npn
+  // 2. Email + writing-number in parallel — conflict detection
+  const [emailRes, contractRes] = await Promise.all([
+    supabaseClient
+      .from("agents")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("email", val)
+      .maybeSingle(),
+    supabaseClient
+      .from("agent_contracts")
+      .select("agent_id")
+      .eq("tenant_id", tenantId)
+      .eq("carrier", normalizedCarrier)
+      .eq("agent_number", val)
+      .maybeSingle(),
+  ]);
+
+  const emailAgentId = emailRes.data?.id ?? null;
+  const writingNumberAgentId = contractRes.data?.agent_id ?? null;
+
+  if (emailAgentId && writingNumberAgentId) {
+    if (emailAgentId === writingNumberAgentId) {
+      return { agentId: emailAgentId, method: "email" };
+    }
+    // Both resolved but to different agents — flag conflict.
+    // Default assignment: email per spec primacy. Row will be marked
+    // needs_review by the wizard.
+    return {
+      agentId: emailAgentId,
+      method: "email",
+      conflict: { emailAgentId, writingNumberAgentId },
+    };
+  }
+  if (emailAgentId) {
+    return { agentId: emailAgentId, method: "email" };
+  }
+  if (writingNumberAgentId) {
+    return { agentId: writingNumberAgentId, method: "contract" };
+  }
+
+  // 3. NPN fallback — last resort, used by carrier feeds that put NPN
+  //    in the writing_agent_id column.
   const { data: byNpn } = await supabaseClient
     .from("agents")
     .select("id")
@@ -201,31 +265,6 @@ export async function resolveAgent(
 
   if (byNpn?.id) {
     return { agentId: byNpn.id, method: "npn" };
-  }
-
-  // Step 3: agent_contracts.agent_number
-  const { data: byContract } = await supabaseClient
-    .from("agent_contracts")
-    .select("agent_id")
-    .eq("tenant_id", tenantId)
-    .eq("carrier", normalizedCarrier)
-    .eq("agent_number", val)
-    .maybeSingle();
-
-  if (byContract?.agent_id) {
-    return { agentId: byContract.agent_id, method: "contract" };
-  }
-
-  // Step 4: agents.email (exact or partial)
-  const { data: byEmail } = await supabaseClient
-    .from("agents")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("email", val)
-    .maybeSingle();
-
-  if (byEmail?.id) {
-    return { agentId: byEmail.id, method: "email" };
   }
 
   return { agentId: null, method: null };
@@ -242,8 +281,11 @@ export function validateImportRow(
   const errors: string[] = [];
   const warnings: string[] = [];
 
+  // policy_number is preferred but not required — when missing, the import
+  // engine attempts a composite fallback match (writing_agent_id + client_name
+  // + carrier + application_date) and flags the row needs_review either way.
   if (!mapped.policy_number?.trim()) {
-    errors.push("Missing policy number");
+    warnings.push("Missing policy number — will be flagged for review");
   }
 
   if (!mapped.client_name?.trim()) {
@@ -353,6 +395,7 @@ export async function buildImportRows(
       resolutionMethod,
       errors,
       warnings,
+      needsReviewReasons: [],
     });
   }
 
