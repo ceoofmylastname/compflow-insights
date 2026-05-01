@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
 
     // Fetch all agents and policies across tenants
     const [agentsRes, policiesRes, webhooksRes] = await Promise.all([
-      adminClient.from("agents").select("id, tenant_id, first_name, last_name, email, is_owner, position, upline_email, is_archived, last_login_at, created_at").in("tenant_id", tenantIds),
+      adminClient.from("agents").select("id, tenant_id, first_name, last_name, email, is_owner, upline_email, is_archived, last_login_at, created_at").in("tenant_id", tenantIds),
       adminClient.from("policies").select("id, tenant_id, annual_premium, resolved_agent_id, created_at, status").in("tenant_id", tenantIds),
       adminClient.from("webhook_configs").select("id, tenant_id, is_active").in("tenant_id", tenantIds),
     ]);

@@ -46,10 +46,11 @@ const CommissionLevels = () => {
   const [carrierFilter, setCarrierFilter] = useState("");
   const [expandedCarriers, setExpandedCarriers] = useState<Set<string>>(new Set());
 
-  // Inline add form state
+  // Inline add form state. addPositionId is the UUID FK; addPosition is the
+  // legacy TEXT title kept in sync for the dual-write window.
   const [addCarrier, setAddCarrier] = useState("");
   const [addProduct, setAddProduct] = useState("");
-  const [addPosition, setAddPosition] = useState("");
+  const [addPositionId, setAddPositionId] = useState("");
   const [addRate, setAddRate] = useState("");
   const [addDate, setAddDate] = useState("");
   const [addSaving, setAddSaving] = useState(false);
@@ -57,19 +58,19 @@ const CommissionLevels = () => {
   // Edit form state
   const [formCarrier, setFormCarrier] = useState("");
   const [formProduct, setFormProduct] = useState("");
-  const [formPosition, setFormPosition] = useState("");
+  const [formPositionId, setFormPositionId] = useState("");
   const [formRate, setFormRate] = useState("");
   const [formDate, setFormDate] = useState("");
   const [saving, setSaving] = useState(false);
 
   const { carriers: allCarriers } = useCarrierOptions();
-  const { positions: positionOptions } = usePositionOptions();
+  const { positions: positionTitles, positionOptions } = usePositionOptions();
   const { data: rateAdjustments } = useRateAdjustments();
   const createAdjustment = useCreateRateAdjustment();
   const deleteAdjustment = useDeleteRateAdjustment();
   const [adjCarrier, setAdjCarrier] = useState("");
   const [adjProduct, setAdjProduct] = useState("");
-  const [adjPosition, setAdjPosition] = useState("");
+  const [adjPositionId, setAdjPositionId] = useState("");
   const [adjRate, setAdjRate] = useState("");
   const [adjStartDate, setAdjStartDate] = useState("");
   const [adjEndDate, setAdjEndDate] = useState("");
@@ -135,20 +136,28 @@ const CommissionLevels = () => {
     setEditRow(row);
     setFormCarrier(row.carrier);
     setFormProduct(row.product);
-    setFormPosition(row.position);
+    // Prefer the row's existing position_id; fall back to looking up by TEXT title.
+    const fkId = (row as any).position_id as string | null;
+    setFormPositionId(
+      fkId ?? positionOptions.find((po) => po.title === row.position)?.id ?? ""
+    );
     setFormRate((row.rate * 100).toFixed(2));
     setFormDate(row.start_date);
     setEditOpen(true);
   };
 
   const handleEditSave = async () => {
-    if (!editRow) return;
+    if (!editRow || !formPositionId) return;
     setSaving(true);
     try {
       const rateNum = parseFloat(formRate) / 100;
       const { error } = await supabase.from("commission_levels").update({
-        carrier: formCarrier, product: formProduct, position: formPosition, rate: rateNum, start_date: formDate,
-      }).eq("id", editRow.id);
+        carrier: formCarrier,
+        product: formProduct,
+        position_id: formPositionId,
+        rate: rateNum,
+        start_date: formDate,
+      } as any).eq("id", editRow.id);
       if (error) throw error;
       toast.success("Rate updated");
       queryClient.invalidateQueries({ queryKey: ["commissionLevels"] });
@@ -161,7 +170,7 @@ const CommissionLevels = () => {
   };
 
   const handleInlineAdd = async () => {
-    if (!currentAgent || !addCarrier.trim() || !addProduct.trim() || !addPosition.trim() || !addRate || !addDate) return;
+    if (!currentAgent || !addCarrier.trim() || !addProduct.trim() || !addPositionId || !addRate || !addDate) return;
     setAddSaving(true);
     try {
       const rateNum = parseFloat(addRate) / 100;
@@ -169,16 +178,16 @@ const CommissionLevels = () => {
         tenant_id: currentAgent.tenant_id,
         carrier: addCarrier.trim(),
         product: addProduct.trim(),
-        position: addPosition.trim(),
+        position_id: addPositionId,
         rate: rateNum,
         start_date: addDate,
-      });
+      } as any);
       if (error) throw error;
       toast.success("Rate added");
       queryClient.invalidateQueries({ queryKey: ["commissionLevels"] });
       setAddCarrier("");
       setAddProduct("");
-      setAddPosition("");
+      setAddPositionId("");
       setAddRate("");
       setAddDate("");
     } catch (err: any) {
@@ -273,16 +282,16 @@ const CommissionLevels = () => {
                 </div>
                 <div className="w-32">
                   <Label className="text-xs">Position</Label>
-                  {positionOptions.length > 0 ? (
-                    <Select value={addPosition} onValueChange={setAddPosition}>
-                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Position" /></SelectTrigger>
-                      <SelectContent>
-                        {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input value={addPosition} onChange={(e) => setAddPosition(e.target.value)} placeholder="Position" className="h-8 text-sm" />
-                  )}
+                  <Select value={addPositionId} onValueChange={setAddPositionId} disabled={positionOptions.length === 0}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder={positionOptions.length === 0 ? "No positions yet" : "Position"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {positionOptions.map((po) => (
+                        <SelectItem key={po.id} value={po.id}>{po.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="w-24">
                   <Label className="text-xs">Rate (%)</Label>
@@ -295,7 +304,7 @@ const CommissionLevels = () => {
                 <Button
                   size="sm"
                   onClick={handleInlineAdd}
-                  disabled={addSaving || !addCarrier.trim() || !addProduct.trim() || !addPosition.trim() || !addRate || !addDate}
+                  disabled={addSaving || !addCarrier.trim() || !addProduct.trim() || !addPositionId || !addRate || !addDate}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   {addSaving ? "Adding..." : "Add"}
@@ -413,16 +422,16 @@ const CommissionLevels = () => {
                 </div>
                 <div className="w-32">
                   <Label className="text-xs">Position</Label>
-                  {positionOptions.length > 0 ? (
-                    <Select value={adjPosition} onValueChange={setAdjPosition}>
-                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Position" /></SelectTrigger>
-                      <SelectContent>
-                        {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input value={adjPosition} onChange={(e) => setAdjPosition(e.target.value)} placeholder="Position" className="h-8 text-sm" />
-                  )}
+                  <Select value={adjPositionId} onValueChange={setAdjPositionId} disabled={positionOptions.length === 0}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder={positionOptions.length === 0 ? "No positions yet" : "Position"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {positionOptions.map((po) => (
+                        <SelectItem key={po.id} value={po.id}>{po.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="w-24">
                   <Label className="text-xs">Adj Rate</Label>
@@ -439,23 +448,23 @@ const CommissionLevels = () => {
                 <Button
                   size="sm"
                   onClick={() => {
-                    if (!adjCarrier || !adjProduct || !adjPosition || !adjRate || !adjStartDate) return;
+                    if (!adjCarrier || !adjProduct || !adjPositionId || !adjRate || !adjStartDate) return;
                     createAdjustment.mutate({
                       carrier: adjCarrier.trim(),
                       product: adjProduct.trim(),
-                      position: adjPosition.trim(),
+                      position_id: adjPositionId,
                       adjustment_rate: parseFloat(adjRate),
                       start_date: adjStartDate,
                       end_date: adjEndDate || undefined,
                       reason: adjReason || undefined,
                     }, {
                       onSuccess: () => {
-                        setAdjCarrier(""); setAdjProduct(""); setAdjPosition("");
+                        setAdjCarrier(""); setAdjProduct(""); setAdjPositionId("");
                         setAdjRate(""); setAdjStartDate(""); setAdjEndDate(""); setAdjReason("");
                       },
                     });
                   }}
-                  disabled={createAdjustment.isPending || !adjCarrier || !adjProduct || !adjPosition || !adjRate || !adjStartDate}
+                  disabled={createAdjustment.isPending || !adjCarrier || !adjProduct || !adjPositionId || !adjRate || !adjStartDate}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" /> Add
                 </Button>
@@ -519,16 +528,16 @@ const CommissionLevels = () => {
             <div><Label>Product</Label><Input value={formProduct} onChange={(e) => setFormProduct(e.target.value)} /></div>
             <div>
               <Label>Position</Label>
-              {positionOptions.length > 0 ? (
-                <Select value={formPosition} onValueChange={setFormPosition}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {positionOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input value={formPosition} onChange={(e) => setFormPosition(e.target.value)} />
-              )}
+              <Select value={formPositionId} onValueChange={setFormPositionId} disabled={positionOptions.length === 0}>
+                <SelectTrigger>
+                  <SelectValue placeholder={positionOptions.length === 0 ? "No positions yet" : "Position"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {positionOptions.map((po) => (
+                    <SelectItem key={po.id} value={po.id}>{po.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div><Label>Rate (%)</Label><Input value={formRate} onChange={(e) => setFormRate(e.target.value)} placeholder="127.00" /></div>
             <div><Label>Effective Date</Label><Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} /></div>

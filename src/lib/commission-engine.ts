@@ -3,16 +3,23 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 interface Agent {
   id: string;
   email: string;
-  position: string | null;
   upline_email: string | null;
   contract_type: string | null;
   start_date: string | null;
 }
 
+interface AgentPositionHistory {
+  agent_id: string;
+  position_id: string | null;
+  upline_email: string | null;
+  start_date: string;
+  end_date: string | null;
+}
+
 interface CommissionLevel {
   carrier: string;
   product: string;
-  position: string;
+  position_id: string;
   rate: number;
   start_date: string;
 }
@@ -20,62 +27,93 @@ interface CommissionLevel {
 interface RateAdjustment {
   carrier: string;
   product: string;
-  position: string;
+  position_id: string;
   adjustment_rate: number;
   start_date: string;
   end_date: string | null;
 }
 
+interface PositionSnapshot {
+  position_id: string;
+  upline_email: string | null;
+}
+
 /**
- * Find the commission rate for a given carrier/product/position active on appDate.
- * Levels must be sorted by start_date DESC already.
- * If rate adjustments exist, applies the adjustment to the base rate.
+ * Resolve an agent's position_id and upline as of `appDate` from the
+ * agent_position_history time-stamped ledger. Picks the row whose [start_date,
+ * end_date] window contains appDate. If multiple match, prefers the latest
+ * start_date.
+ */
+function findPositionAt(
+  history: AgentPositionHistory[],
+  agentId: string,
+  appDate: string
+): PositionSnapshot | null {
+  const matches = history.filter(
+    (h) =>
+      h.agent_id === agentId &&
+      h.position_id != null &&
+      h.start_date <= appDate &&
+      (h.end_date == null || h.end_date >= appDate)
+  );
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => b.start_date.localeCompare(a.start_date));
+  return {
+    position_id: matches[0].position_id as string,
+    upline_email: matches[0].upline_email,
+  };
+}
+
+/**
+ * Find the commission rate for a given carrier/product/position_id active on
+ * appDate. `levels` must be sorted by start_date DESC. Applies any matching
+ * rate adjustment on top of the base rate.
  */
 function findRate(
   levels: CommissionLevel[],
   carrier: string,
   product: string,
-  position: string,
+  positionId: string,
   appDate: string,
-  adjustments?: RateAdjustment[]
+  adjustments: RateAdjustment[]
 ): number | null {
   const match = levels.find(
     (l) =>
       l.carrier === carrier &&
       l.product === product &&
-      l.position === position &&
+      l.position_id === positionId &&
       l.start_date <= appDate
   );
   if (!match) return null;
 
   let rate = match.rate;
 
-  if (adjustments) {
-    const adj = adjustments.find(
-      (a) =>
-        a.carrier === carrier &&
-        a.product === product &&
-        a.position === position &&
-        a.start_date <= appDate &&
-        (!a.end_date || a.end_date >= appDate)
-    );
-    if (adj) {
-      rate += adj.adjustment_rate;
-    }
-  }
+  const adj = adjustments.find(
+    (a) =>
+      a.carrier === carrier &&
+      a.product === product &&
+      a.position_id === positionId &&
+      a.start_date <= appDate &&
+      (!a.end_date || a.end_date >= appDate)
+  );
+  if (adj) rate += adj.adjustment_rate;
 
   return rate;
 }
 
 /**
  * Calculate and persist commission payouts for a single policy.
- * Walks the upline chain to compute override commissions.
+ *
+ * Resolves each agent's position from agent_position_history at the policy's
+ * application_date (time-stamped: a promotion today doesn't change
+ * commissions on a policy written six months ago). Walks the upline chain
+ * via the upline_email recorded on the agent's position-history row, also
+ * snapshotted at application_date.
  */
 export async function calculateAndSavePayouts(
   policyId: string,
   supabaseClient: SupabaseClient
 ): Promise<void> {
-  // 1. Fetch the policy
   const { data: policy, error: policyErr } = await supabaseClient
     .from("policies")
     .select("*")
@@ -95,10 +133,10 @@ export async function calculateAndSavePayouts(
 
   if (!carrier || !product || !application_date || !annual_premium || !resolved_agent_id) return;
 
-  // 2. Fetch all agents for the tenant
+  // 1. Fetch agents in tenant
   const { data: agents } = await supabaseClient
     .from("agents")
-    .select("id, email, position, upline_email, contract_type, start_date")
+    .select("id, email, upline_email, contract_type, start_date")
     .eq("tenant_id", tenant_id);
 
   if (!agents || agents.length === 0) return;
@@ -110,31 +148,48 @@ export async function calculateAndSavePayouts(
     emailMap.set(a.email, a as Agent);
   }
 
-  // 3. Fetch commission levels for tenant, sorted by start_date DESC
-  const { data: levels } = await supabaseClient
+  // 2. Fetch position history for the tenant (we filter to relevant rows in JS)
+  const { data: historyRaw } = await supabaseClient
+    .from("agent_position_history")
+    .select("agent_id, position_id, upline_email, start_date, end_date")
+    .eq("tenant_id", tenant_id);
+
+  const history = (historyRaw ?? []) as AgentPositionHistory[];
+
+  // 3. Fetch commission levels
+  const { data: levelsRaw } = await supabaseClient
     .from("commission_levels")
-    .select("carrier, product, position, rate, start_date")
+    .select("carrier, product, position_id, rate, start_date")
     .eq("tenant_id", tenant_id)
     .order("start_date", { ascending: false });
 
-  if (!levels || levels.length === 0) return;
+  const levels = (levelsRaw ?? []) as CommissionLevel[];
+  if (levels.length === 0) return;
 
-  // 3b. Fetch rate adjustments
+  // 4. Fetch rate adjustments
   const { data: adjustmentsRaw } = await supabaseClient
     .from("commission_rate_adjustments")
-    .select("carrier, product, position, adjustment_rate, start_date, end_date")
+    .select("carrier, product, position_id, adjustment_rate, start_date, end_date")
     .eq("tenant_id", tenant_id);
+
   const adjustments = (adjustmentsRaw ?? []) as RateAdjustment[];
 
-  // 4. Find writing agent
+  // 5. Resolve writing agent + their position at application_date
   const writingAgent = agentMap.get(resolved_agent_id);
-  if (!writingAgent || !writingAgent.position) return;
-
-  // Confirm agent start_date <= application_date
+  if (!writingAgent) return;
   if (writingAgent.start_date && writingAgent.start_date > application_date) return;
 
-  // 5. Look up writing agent's rate
-  const directRate = findRate(levels, carrier, product, writingAgent.position, application_date, adjustments);
+  const writingPos = findPositionAt(history, writingAgent.id, application_date);
+  if (!writingPos) return;
+
+  const directRate = findRate(
+    levels,
+    carrier,
+    product,
+    writingPos.position_id,
+    application_date,
+    adjustments
+  );
   if (directRate == null) return;
 
   const payouts: Array<{
@@ -147,7 +202,6 @@ export async function calculateAndSavePayouts(
     contract_type: string | null;
   }> = [];
 
-  // Direct payout for writing agent
   payouts.push({
     tenant_id,
     policy_id: policyId,
@@ -158,46 +212,57 @@ export async function calculateAndSavePayouts(
     contract_type: writingAgent.contract_type,
   });
 
-  // 6. Walk upline chain for overrides
-  let currentAgent = writingAgent;
+  // 6. Walk upline chain. The upline at policy-write time is recorded on the
+  //    writing agent's position-history row (writingPos.upline_email), then
+  //    each subsequent upline's own at-the-time row.
+  let currentUplineEmail = writingPos.upline_email;
   let downlineRate = directRate;
   const visited = new Set<string>([resolved_agent_id]);
 
-  while (currentAgent.upline_email) {
-    const upline = emailMap.get(currentAgent.upline_email);
-    if (!upline || visited.has(upline.id)) break; // prevent cycles
+  while (currentUplineEmail) {
+    const upline = emailMap.get(currentUplineEmail);
+    if (!upline || visited.has(upline.id)) break;
     visited.add(upline.id);
 
-    if (!upline.position) {
-      currentAgent = upline;
-      continue;
-    }
-
-    // Confirm upline start_date <= application_date
     if (upline.start_date && upline.start_date > application_date) {
-      currentAgent = upline;
+      // Upline wasn't active yet at app date; can't credit them. Try to keep
+      // walking using their CURRENT upline_email as a fallback so the chain
+      // doesn't dead-end on agents missing position history.
+      currentUplineEmail = upline.upline_email;
       continue;
     }
 
-    const uplineRate = findRate(levels, carrier, product, upline.position, application_date, adjustments);
+    const uplinePos = findPositionAt(history, upline.id, application_date);
+    if (!uplinePos) {
+      currentUplineEmail = upline.upline_email;
+      continue;
+    }
+
+    const uplineRate = findRate(
+      levels,
+      carrier,
+      product,
+      uplinePos.position_id,
+      application_date,
+      adjustments
+    );
     if (uplineRate != null && uplineRate > downlineRate) {
-      const overrideAmount = (uplineRate - downlineRate) * annual_premium;
       payouts.push({
         tenant_id,
         policy_id: policyId,
         agent_id: upline.id,
         commission_rate: uplineRate - downlineRate,
-        commission_amount: overrideAmount,
+        commission_amount: (uplineRate - downlineRate) * annual_premium,
         payout_type: "override",
         contract_type: upline.contract_type,
       });
       downlineRate = uplineRate;
     }
 
-    currentAgent = upline;
+    currentUplineEmail = uplinePos.upline_email;
   }
 
-  // 7. Upsert all payouts
+  // 7. Persist
   if (payouts.length > 0) {
     await supabaseClient
       .from("commission_payouts")
@@ -206,8 +271,8 @@ export async function calculateAndSavePayouts(
 }
 
 /**
- * Recalculate commission payouts for all policies in a tenant.
- * Useful when commission rates are updated retroactively.
+ * Recalculate commission payouts for every policy in a tenant. Useful after
+ * editing comp grid rates retroactively.
  */
 export async function recalculateAllPayouts(
   tenantId: string,
@@ -216,19 +281,13 @@ export async function recalculateAllPayouts(
   const errors: string[] = [];
   let processed = 0;
 
-  // Fetch all policy IDs for the tenant
   const { data: policies, error: fetchErr } = await supabaseClient
     .from("policies")
     .select("id")
     .eq("tenant_id", tenantId);
 
-  if (fetchErr) {
-    return { processed: 0, errors: [fetchErr.message] };
-  }
-
-  if (!policies || policies.length === 0) {
-    return { processed: 0, errors: [] };
-  }
+  if (fetchErr) return { processed: 0, errors: [fetchErr.message] };
+  if (!policies || policies.length === 0) return { processed: 0, errors: [] };
 
   for (const policy of policies) {
     try {

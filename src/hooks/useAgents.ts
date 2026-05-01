@@ -5,19 +5,58 @@ import { toast } from "sonner";
 import { QUERY_KEYS } from "@/lib/query-keys";
 import type { Tables } from "@/integrations/supabase/types";
 
-export type Agent = Tables<"agents">;
+type RawAgent = Tables<"agents">;
+
+/**
+ * Agent shape used throughout the app. The `position` field is INJECTED from
+ * the agent_current_positions view (FK-based time-stamped position record),
+ * not the legacy agents.position TEXT column. This lets every consumer keep
+ * reading `agent.position` after the TEXT column is dropped.
+ */
+export interface Agent extends Omit<RawAgent, "position"> {
+  position: string | null;
+  position_id: string | null;
+  position_priority: number | null;
+}
+
+interface CurrentPositionRow {
+  agent_id: string;
+  position_id: string;
+  position_title: string;
+  position_priority: number | null;
+}
+
+async function fetchAgentsWithPositions(filterFn: (q: any) => any): Promise<Agent[]> {
+  const [agentsRes, posRes] = await Promise.all([
+    filterFn(supabase.from("agents").select("*")),
+    supabase
+      .from("agent_current_positions" as any)
+      .select("agent_id, position_id, position_title, position_priority"),
+  ]);
+  if (agentsRes.error) throw agentsRes.error;
+  if (posRes.error) throw posRes.error;
+
+  const posMap = new Map<string, CurrentPositionRow>();
+  for (const p of (posRes.data ?? []) as unknown as CurrentPositionRow[]) {
+    posMap.set(p.agent_id, p);
+  }
+
+  return ((agentsRes.data ?? []) as RawAgent[]).map((a) => {
+    const p = posMap.get(a.id);
+    return {
+      ...a,
+      position: p?.position_title ?? null,
+      position_id: p?.position_id ?? null,
+      position_priority: p?.position_priority ?? null,
+    } as Agent;
+  });
+}
 
 export function useAgents() {
   return useQuery({
     queryKey: [...QUERY_KEYS.agents],
     queryFn: async (): Promise<Agent[]> => {
-      const { data, error } = await supabase
-        .from("agents")
-        .select("*")
-        .neq("is_archived", true)
-        .order("last_name");
-      if (error) throw error;
-      return data ?? [];
+      return fetchAgentsWithPositions((q) => q.neq("is_archived", true).order("last_name"));
     },
   });
 }
@@ -26,13 +65,7 @@ export function useArchivedAgents() {
   return useQuery({
     queryKey: [...QUERY_KEYS.archivedAgents],
     queryFn: async (): Promise<Agent[]> => {
-      const { data, error } = await supabase
-        .from("agents")
-        .select("*")
-        .eq("is_archived", true)
-        .order("archived_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      return fetchAgentsWithPositions((q) => q.eq("is_archived", true).order("archived_at", { ascending: false }));
     },
   });
 }

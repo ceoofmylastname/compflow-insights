@@ -21,10 +21,28 @@ export function usePositions() {
   });
 }
 
+export interface PositionOption {
+  id: string;
+  title: string;
+  priority: number;
+}
+
+/**
+ * Returns position dropdown options. `positions` is the legacy `string[]` of
+ * titles for backward compatibility with existing callers. `positionOptions`
+ * is the FK-aware shape `{id, title, priority}[]` that new code should use.
+ * Both are sorted by priority ascending.
+ */
 export function usePositionOptions() {
   const { data: positions, isLoading } = usePositions();
-  const positionTitles = (positions ?? []).map((p) => p.title).sort();
-  return { positions: positionTitles, isLoading };
+  const sorted = (positions ?? []).slice().sort((a, b) => a.priority - b.priority);
+  const positionTitles = sorted.map((p) => p.title);
+  const positionOptions: PositionOption[] = sorted.map((p) => ({
+    id: p.id,
+    title: p.title,
+    priority: p.priority ?? 0,
+  }));
+  return { positions: positionTitles, positionOptions, isLoading };
 }
 
 export function useCreatePosition() {

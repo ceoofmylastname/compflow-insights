@@ -231,40 +231,128 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
     const tenantId = currentAgent.tenant_id;
     let imported = 0;
 
+    // Resolve a position TEXT (e.g. "Position #8") to a position_id within the
+    // tenant. Auto-creates a positions row if no match exists. Cached per call.
+    const positionCache = new Map<string, string>();
+    const resolvePositionId = async (title: string | null | undefined): Promise<string | null> => {
+      const t = (title ?? "").trim();
+      if (!t) return null;
+      const cached = positionCache.get(t);
+      if (cached) return cached;
+
+      const { data: existing } = await supabase
+        .from("positions")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("title", t)
+        .maybeSingle();
+
+      if (existing?.id) {
+        positionCache.set(t, existing.id);
+        return existing.id;
+      }
+
+      const { data: created, error: createErr } = await supabase
+        .from("positions")
+        .insert({ tenant_id: tenantId, title: t, priority: 0 } as any)
+        .select("id")
+        .single();
+
+      if (createErr || !created) return null;
+      positionCache.set(t, created.id);
+      return created.id;
+    };
+
     try {
       if (tab === "agents") {
         for (let i = 0; i < validRows.length; i++) {
           const r = validRows[i];
-          const { error } = await supabase.from("agents").upsert(
-            {
-              tenant_id: tenantId,
-              first_name: r.first_name,
-              last_name: r.last_name,
-              email: r.email,
-              npn: r.npn || null,
-              position: r.position || null,
-              upline_email: r.upline_email || null,
-              start_date: r.start_date || null,
-              annual_goal: r.annual_goal ? parseFloat(r.annual_goal) : null,
-              phone: r.phone || null,
-              is_owner: false,
-            },
-            { onConflict: "email,tenant_id", ignoreDuplicates: false }
-          );
+          const positionId = await resolvePositionId(r.position);
+
+          const { data: agentRow, error } = await supabase
+            .from("agents")
+            .upsert(
+              {
+                tenant_id: tenantId,
+                first_name: r.first_name,
+                last_name: r.last_name,
+                email: r.email,
+                npn: r.npn || null,
+                upline_email: r.upline_email || null,
+                start_date: r.start_date || null,
+                annual_goal: r.annual_goal ? parseFloat(r.annual_goal) : null,
+                phone: r.phone || null,
+                is_owner: false,
+              } as any,
+              { onConflict: "email,tenant_id", ignoreDuplicates: false }
+            )
+            .select("id")
+            .single();
+
+          if (!error && agentRow && positionId) {
+            // Record the agent's position via history (FK), not on the agent row.
+            // Skip if there is already an open history row.
+            const { data: openRow } = await supabase
+              .from("agent_position_history" as any)
+              .select("id, position_id")
+              .eq("agent_id", agentRow.id)
+              .is("end_date", null)
+              .maybeSingle();
+            const openRowTyped = openRow as unknown as { id: string; position_id: string } | null;
+            if (!openRowTyped) {
+              await supabase
+                .from("agent_position_history" as any)
+                .insert({
+                  tenant_id: tenantId,
+                  agent_id: agentRow.id,
+                  position_id: positionId,
+                  upline_email: r.upline_email || null,
+                  start_date: r.start_date || new Date().toISOString().split("T")[0],
+                });
+            } else if (openRowTyped.position_id !== positionId) {
+              // Position changed: close the old row, open a new one
+              const today = new Date().toISOString().split("T")[0];
+              await supabase
+                .from("agent_position_history" as any)
+                .update({ end_date: today })
+                .eq("id", openRowTyped.id);
+              await supabase
+                .from("agent_position_history" as any)
+                .insert({
+                  tenant_id: tenantId,
+                  agent_id: agentRow.id,
+                  position_id: positionId,
+                  upline_email: r.upline_email || null,
+                  start_date: today,
+                });
+            }
+          }
           if (!error) imported++;
           setImportProgress(((i + 1) / validRows.length) * 100);
         }
       } else if (tab === "commissions") {
-        const records = validRows.map((r) => ({
-          tenant_id: tenantId,
-          carrier: r.carrier,
-          product: r.product,
-          position: r.position,
-          rate: parseFloat(r.rate.replace("%", "")) / 100,
-          start_date: r.start_date,
-        }));
-        const { error } = await supabase.from("commission_levels").upsert(records, { onConflict: "tenant_id,carrier,product,position,start_date", ignoreDuplicates: true });
-        if (!error) imported = records.length;
+        const records: any[] = [];
+        for (const r of validRows) {
+          const positionId = await resolvePositionId(r.position);
+          if (!positionId) continue; // can't insert without a position
+          records.push({
+            tenant_id: tenantId,
+            carrier: r.carrier,
+            product: r.product,
+            position_id: positionId,
+            rate: parseFloat(r.rate.replace("%", "")) / 100,
+            start_date: r.start_date,
+          });
+        }
+        if (records.length > 0) {
+          const { error } = await supabase
+            .from("commission_levels")
+            .upsert(records, {
+              onConflict: "tenant_id,carrier,product,position_id,start_date",
+              ignoreDuplicates: true,
+            });
+          if (!error) imported = records.length;
+        }
         setImportProgress(100);
       } else if (tab === "policies") {
         const { data: activeWebhooks } = await supabase

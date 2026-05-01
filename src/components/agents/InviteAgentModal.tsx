@@ -19,14 +19,14 @@ interface InviteAgentModalProps {
 
 export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) {
   const [email, setEmail] = useState("");
-  const [position, setPosition] = useState("");
+  const [positionId, setPositionId] = useState("");
   const [contractType, setContractType] = useState("Direct Pay");
   const [annualGoal, setAnnualGoal] = useState("");
   const [loading, setLoading] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { data: currentAgent } = useCurrentAgent();
-  const { positions: positionOptions } = usePositionOptions();
+  const { positionOptions } = usePositionOptions();
   const { data: agents } = useAgents();
   const queryClient = useQueryClient();
 
@@ -51,20 +51,41 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
       });
       if (error) throw error;
 
-      // Pre-create placeholder agent record so signup can "claim" it
-      const { error: agentError } = await supabase.from("agents").insert({
-        tenant_id: currentAgent.tenant_id,
-        email,
-        first_name: "",
-        last_name: "",
-        position: position || null,
-        contract_type: contractType,
-        annual_goal: annualGoal ? parseFloat(annualGoal) : null,
-        upline_email: currentAgent.email,
-        is_owner: false,
-        start_date: new Date().toISOString().split("T")[0],
-      });
-      if (agentError) console.warn("Agent pre-create failed (may already exist):", agentError.message);
+      // Pre-create placeholder agent record so signup can "claim" it.
+      // Position is recorded via agent_position_history (FK), not on the
+      // agents row.
+      const startDate = new Date().toISOString().split("T")[0];
+      const { data: insertedAgent, error: agentError } = await supabase
+        .from("agents")
+        .insert({
+          tenant_id: currentAgent.tenant_id,
+          email,
+          first_name: "",
+          last_name: "",
+          contract_type: contractType,
+          annual_goal: annualGoal ? parseFloat(annualGoal) : null,
+          upline_email: currentAgent.email,
+          is_owner: false,
+          start_date: startDate,
+        } as any)
+        .select("id")
+        .maybeSingle();
+
+      if (agentError) {
+        console.warn("Agent pre-create failed (may already exist):", agentError.message);
+      } else if (insertedAgent && positionId) {
+        // Record the agent's starting position assignment
+        const { error: histError } = await supabase
+          .from("agent_position_history" as any)
+          .insert({
+            tenant_id: currentAgent.tenant_id,
+            agent_id: insertedAgent.id,
+            position_id: positionId,
+            upline_email: currentAgent.email,
+            start_date: startDate,
+          });
+        if (histError) console.warn("Position history insert failed:", histError.message);
+      }
 
       const appHost = import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com";
       const url = `https://${appHost}/signup?invite=${token}`;
@@ -91,7 +112,7 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
     if (!v) {
       setInviteUrl(null);
       setEmail("");
-      setPosition("");
+      setPositionId("");
       setAnnualGoal("");
       setCopied(false);
     }
@@ -127,11 +148,16 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
             </div>
             <div>
               <Label>Position</Label>
-              <Select value={position} onValueChange={setPosition}>
-                <SelectTrigger><SelectValue placeholder="Select position" /></SelectTrigger>
+              <Select value={positionId} onValueChange={setPositionId} disabled={positionOptions.length === 0}>
+                <SelectTrigger>
+                  <SelectValue placeholder={positionOptions.length === 0 ? "No positions defined yet" : "Select position"} />
+                </SelectTrigger>
                 <SelectContent>
-                  {canAssignManager && <SelectItem value="Manager">Manager</SelectItem>}
-                  <SelectItem value="Agent">Agent</SelectItem>
+                  {positionOptions
+                    .filter((po) => canAssignManager || po.title.toLowerCase() !== "manager")
+                    .map((po) => (
+                      <SelectItem key={po.id} value={po.id}>{po.title}</SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
