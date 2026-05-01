@@ -68,6 +68,64 @@ export type Database = {
           },
         ]
       }
+      agent_position_history: {
+        Row: {
+          agent_id: string
+          created_at: string
+          end_date: string | null
+          id: string
+          position_id: string | null
+          position_title: string
+          start_date: string
+          tenant_id: string
+          upline_email: string | null
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          position_id?: string | null
+          position_title: string
+          start_date: string
+          tenant_id: string
+          upline_email?: string | null
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          end_date?: string | null
+          id?: string
+          position_id?: string | null
+          position_title?: string
+          start_date?: string
+          tenant_id?: string
+          upline_email?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_position_history_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_position_history_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_position_history_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agents: {
         Row: {
           annual_goal: number | null
@@ -351,6 +409,7 @@ export type Database = {
           created_at: string
           id: string
           position: string
+          position_id: string
           product: string
           rate: number
           start_date: string
@@ -361,6 +420,7 @@ export type Database = {
           created_at?: string
           id?: string
           position: string
+          position_id: string
           product: string
           rate: number
           start_date: string
@@ -371,12 +431,20 @@ export type Database = {
           created_at?: string
           id?: string
           position?: string
+          position_id?: string
           product?: string
           rate?: number
           start_date?: string
           tenant_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "commission_levels_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "commission_levels_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -452,6 +520,7 @@ export type Database = {
           end_date: string | null
           id: string
           position: string
+          position_id: string
           product: string
           reason: string | null
           start_date: string
@@ -464,6 +533,7 @@ export type Database = {
           end_date?: string | null
           id?: string
           position: string
+          position_id: string
           product: string
           reason?: string | null
           start_date: string
@@ -476,12 +546,20 @@ export type Database = {
           end_date?: string | null
           id?: string
           position?: string
+          position_id?: string
           product?: string
           reason?: string | null
           start_date?: string
           tenant_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "commission_rate_adjustments_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "commission_rate_adjustments_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -854,7 +932,40 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      agent_current_positions: {
+        Row: {
+          agent_id: string | null
+          position_id: string | null
+          position_priority: number | null
+          position_title: string | null
+          start_date: string | null
+          tenant_id: string | null
+          upline_email: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_position_history_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_position_history_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_position_history_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       claim_agent_record: {
@@ -869,6 +980,10 @@ export type Database = {
         Returns: undefined
       }
       flag_chargeback_risk: { Args: never; Returns: undefined }
+      get_agent_position_at: {
+        Args: { _agent_id: string; _at_date: string }
+        Returns: string
+      }
       get_agent_tenant_id_secure: {
         Args: { _user_id: string }
         Returns: string
