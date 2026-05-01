@@ -28,6 +28,24 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { OrgTree } from "@/components/agents/OrgTree";
 import { useCanImport } from "@/hooks/useCanImport";
+import { getAgentRole } from "@/lib/agent-role";
+import { AgentRoleBadge } from "@/components/shared/AgentRoleBadge";
+
+interface AgentEditForm {
+  first_name: string;
+  last_name: string;
+  email: string;
+  npn: string;
+  phone: string;
+  contract_type: string;
+  start_date: string;
+  annual_goal: string;
+}
+
+const emptyEditForm: AgentEditForm = {
+  first_name: "", last_name: "", email: "", npn: "", phone: "",
+  contract_type: "Direct Pay", start_date: "", annual_goal: "",
+};
 
 const AgentRoster = () => {
   const [viewMode, setViewMode] = useState<"table" | "orgchart">("table");
@@ -37,6 +55,9 @@ const AgentRoster = () => {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [profileAgent, setProfileAgent] = useState<Agent | null>(null);
   const [editingGoal, setEditingGoal] = useState<{ id: string; value: string } | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editForm, setEditForm] = useState<AgentEditForm>(emptyEditForm);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
@@ -89,6 +110,90 @@ const AgentRoster = () => {
     return { activePrem, commYTD, directReports };
   };
 
+  const beginEditProfile = (agent: Agent) => {
+    setEditForm({
+      first_name: agent.first_name ?? "",
+      last_name: agent.last_name ?? "",
+      email: agent.email ?? "",
+      npn: agent.npn ?? "",
+      phone: agent.phone ?? "",
+      contract_type: agent.contract_type ?? "Direct Pay",
+      start_date: agent.start_date ?? "",
+      annual_goal: agent.annual_goal != null ? String(agent.annual_goal) : "",
+    });
+    setEditingProfile(true);
+  };
+
+  const cancelEditProfile = () => {
+    setEditingProfile(false);
+    setEditForm(emptyEditForm);
+  };
+
+  const saveEditProfile = async () => {
+    if (!profileAgent || !currentAgent) return;
+    const newEmail = editForm.email.trim().toLowerCase();
+    const oldEmail = (profileAgent.email ?? "").toLowerCase();
+    if (!editForm.first_name.trim() || !editForm.last_name.trim() || !newEmail) {
+      toast.error("First name, last name, and email are required");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      // Update the agent record
+      const goalNum = editForm.annual_goal ? parseFloat(editForm.annual_goal) : null;
+      const { error: updErr } = await supabase
+        .from("agents")
+        .update({
+          first_name: editForm.first_name.trim(),
+          last_name: editForm.last_name.trim(),
+          email: newEmail,
+          npn: editForm.npn.trim() || null,
+          phone: editForm.phone.trim() || null,
+          contract_type: editForm.contract_type || null,
+          start_date: editForm.start_date || null,
+          annual_goal: goalNum,
+        } as any)
+        .eq("id", profileAgent.id);
+      if (updErr) throw updErr;
+
+      // Cascade an email change to references that key on the email string.
+      // This prevents orphaning the downline tree, invites, and position
+      // history when the agent's identifier changes.
+      if (newEmail !== oldEmail && oldEmail) {
+        const tenantId = currentAgent.tenant_id;
+        await Promise.all([
+          supabase
+            .from("agents")
+            .update({ upline_email: newEmail } as any)
+            .eq("tenant_id", tenantId)
+            .eq("upline_email", oldEmail),
+          supabase
+            .from("invites")
+            .update({ invitee_upline_email: newEmail } as any)
+            .eq("tenant_id", tenantId)
+            .eq("invitee_upline_email", oldEmail),
+          supabase
+            .from("agent_position_history" as any)
+            .update({ upline_email: newEmail })
+            .eq("tenant_id", tenantId)
+            .eq("upline_email", oldEmail),
+        ]);
+        toast.info("Login email is separate from this record. The agent still signs in with their original email.");
+      }
+
+      toast.success("Agent updated");
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      queryClient.invalidateQueries({ queryKey: ["currentAgent"] });
+      // Refresh the drawer's view of the agent
+      setProfileAgent({ ...profileAgent, ...editForm, annual_goal: goalNum, email: newEmail } as Agent);
+      setEditingProfile(false);
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to update agent");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const handleGoalSave = async (agentId: string, value: string) => {
     const num = parseFloat(value);
     if (isNaN(num) || num < 0) {
@@ -130,7 +235,16 @@ const AgentRoster = () => {
   };
 
   const columns: Column<Agent>[] = [
-    { key: "name", label: "Full Name", render: (r) => `${r.first_name} ${r.last_name}` },
+    {
+      key: "name",
+      label: "Full Name",
+      render: (r) => (
+        <div className="flex items-center gap-2">
+          <span>{r.first_name} {r.last_name}</span>
+          <AgentRoleBadge role={getAgentRole(r, agents ?? [])} />
+        </div>
+      ),
+    },
     { key: "email", label: "Email" },
     { key: "npn", label: "NPN" },
     { key: "phone", label: "Phone", render: (r) => r.phone || "--" },
@@ -293,10 +407,25 @@ const AgentRoster = () => {
 
       <InviteAgentModal open={inviteOpen} onOpenChange={setInviteOpen} />
 
-      <Sheet open={!!profileAgent} onOpenChange={(v) => !v && setProfileAgent(null)}>
+      <Sheet
+        open={!!profileAgent}
+        onOpenChange={(v) => {
+          if (!v) {
+            setProfileAgent(null);
+            cancelEditProfile();
+          }
+        }}
+      >
         <SheetContent className="overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>Agent Profile</SheetTitle>
+            <div className="flex items-center justify-between">
+              <SheetTitle>Agent Profile</SheetTitle>
+              {profileAgent && isOwner && !editingProfile && (
+                <Button size="sm" variant="outline" onClick={() => beginEditProfile(profileAgent)}>
+                  Edit
+                </Button>
+              )}
+            </div>
           </SheetHeader>
           {profileAgent && (() => {
             const stats = getAgentStats(profileAgent.id);
@@ -306,9 +435,12 @@ const AgentRoster = () => {
                   <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-lg font-bold text-primary">
                     {profileAgent.first_name[0]}{profileAgent.last_name[0]}
                   </div>
-                  <div>
-                    <p className="font-semibold text-foreground">{profileAgent.first_name} {profileAgent.last_name}</p>
-                    <p className="text-sm text-muted-foreground">{profileAgent.email}</p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-foreground truncate">{profileAgent.first_name} {profileAgent.last_name}</p>
+                      <AgentRoleBadge role={getAgentRole(profileAgent, agents ?? [])} />
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">{profileAgent.email}</p>
                   </div>
                 </div>
 
@@ -319,20 +451,122 @@ const AgentRoster = () => {
                   </TabsList>
 
                   <TabsContent value="details" className="space-y-4 mt-3">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between"><span className="text-muted-foreground">Position</span><span>{profileAgent.position || "--"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">NPN</span><span>{profileAgent.npn || "--"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span>{profileAgent.phone || "--"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Contract Type</span><span>{profileAgent.contract_type || "--"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Start Date</span><span>{formatDate(profileAgent.start_date)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Annual Goal</span><span>{formatCurrency(Number(profileAgent.annual_goal))}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Upline</span><span>{getUplineName(profileAgent.upline_email)}</span></div>
-                    </div>
-                    <div className="border-t border-border pt-4 space-y-2">
-                      <div className="flex justify-between"><span className="text-muted-foreground">Active Premium</span><span className="font-semibold">{formatCurrency(stats.activePrem)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Commission YTD</span><span className="font-semibold">{formatCurrency(stats.commYTD)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Direct Reports</span><span className="font-semibold">{stats.directReports}</span></div>
-                    </div>
+                    {editingProfile && isOwner ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">First Name</Label>
+                            <Input
+                              value={editForm.first_name}
+                              onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                              className="h-8 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Last Name</Label>
+                            <Input
+                              value={editForm.last_name}
+                              onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                              className="h-8 text-sm"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Email</Label>
+                          <Input
+                            type="email"
+                            value={editForm.email}
+                            onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                            className="h-8 text-sm"
+                          />
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            Changes here update the agent record + downline references.
+                            Login email is separate — the agent still signs in with their original email.
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">NPN</Label>
+                            <Input
+                              value={editForm.npn}
+                              onChange={(e) => setEditForm({ ...editForm, npn: e.target.value })}
+                              className="h-8 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Phone</Label>
+                            <Input
+                              value={editForm.phone}
+                              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                              placeholder="(555) 123-4567"
+                              className="h-8 text-sm"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs">Contract Type</Label>
+                            <Select
+                              value={editForm.contract_type}
+                              onValueChange={(v) => setEditForm({ ...editForm, contract_type: v })}
+                            >
+                              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Direct Pay">Direct Pay</SelectItem>
+                                <SelectItem value="LOA">LOA</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Start Date</Label>
+                            <Input
+                              type="date"
+                              value={editForm.start_date}
+                              onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                              className="h-8 text-sm"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Annual Goal</Label>
+                          <Input
+                            type="number"
+                            value={editForm.annual_goal}
+                            onChange={(e) => setEditForm({ ...editForm, annual_goal: e.target.value })}
+                            placeholder="100000"
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Position changes are tracked separately via the Positions page (time-stamped history).
+                        </p>
+                        <div className="flex gap-2 pt-2">
+                          <Button size="sm" onClick={saveEditProfile} disabled={savingProfile}>
+                            {savingProfile ? "Saving..." : "Save"}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={cancelEditProfile} disabled={savingProfile}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Position</span><span>{profileAgent.position || "--"}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">NPN</span><span>{profileAgent.npn || "--"}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span>{profileAgent.phone || "--"}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Contract Type</span><span>{profileAgent.contract_type || "--"}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Start Date</span><span>{formatDate(profileAgent.start_date)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Annual Goal</span><span>{formatCurrency(Number(profileAgent.annual_goal))}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Upline</span><span>{getUplineName(profileAgent.upline_email)}</span></div>
+                        </div>
+                        <div className="border-t border-border pt-4 space-y-2">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Active Premium</span><span className="font-semibold">{formatCurrency(stats.activePrem)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Commission YTD</span><span className="font-semibold">{formatCurrency(stats.commYTD)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Direct Reports</span><span className="font-semibold">{stats.directReports}</span></div>
+                        </div>
+                      </>
+                    )}
                   </TabsContent>
 
                   <TabsContent value="contracts" className="mt-3">

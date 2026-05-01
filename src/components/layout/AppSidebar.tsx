@@ -32,7 +32,10 @@ import { useSuperAdmin } from "@/hooks/useSuperAdmin";
 import { useTenant } from "@/hooks/useTenant";
 import { useCarriers } from "@/hooks/useCarriers";
 import { useAgentContracts } from "@/hooks/useAgentContracts";
+import { useAgents } from "@/hooks/useAgents";
 import { useDrafts } from "@/hooks/useDrafts";
+import { getAgentRole } from "@/lib/agent-role";
+import { AgentRoleBadge } from "@/components/shared/AgentRoleBadge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -73,9 +76,13 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
   const { data: allCarriers } = useCarriers();
   const { data: myContracts } = useAgentContracts(currentAgent?.id);
   const { data: drafts } = useDrafts();
+  const { data: allAgents } = useAgents();
   const { isSuperAdmin } = useSuperAdmin();
   const isOwner = currentAgent?.is_owner ?? false;
   const draftCount = drafts?.length ?? 0;
+  const currentRole = currentAgent
+    ? getAgentRole(currentAgent, allAgents ?? [])
+    : null;
 
   const carrierBadgeCount = useMemo(() => {
     if (!allCarriers || !myContracts) return 0;
@@ -248,9 +255,12 @@ export function AppSidebar({ domainTenant }: { domainTenant?: DomainTenant | nul
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {currentAgent ? `${currentAgent.first_name} ${currentAgent.last_name}` : ""}
-              </p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium text-sidebar-foreground truncate">
+                  {currentAgent ? `${currentAgent.first_name} ${currentAgent.last_name}` : ""}
+                </p>
+                {currentRole && <AgentRoleBadge role={currentRole} />}
+              </div>
               {isSuperAdmin && (
                 <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
                   Platform Admin
