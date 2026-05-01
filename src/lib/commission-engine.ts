@@ -8,12 +8,14 @@ interface Agent {
   start_date: string | null;
 }
 
-interface AgentPositionHistory {
+export interface AgentPositionHistory {
   agent_id: string;
   position_id: string | null;
   upline_email: string | null;
   start_date: string;
   end_date: string | null;
+  /** Optional — used as a tiebreaker when two history rows share start_date. */
+  created_at?: string | null;
 }
 
 interface CommissionLevel {
@@ -33,18 +35,22 @@ interface RateAdjustment {
   end_date: string | null;
 }
 
-interface PositionSnapshot {
+export interface PositionSnapshot {
   position_id: string;
   upline_email: string | null;
 }
 
 /**
  * Resolve an agent's position_id and upline as of `appDate` from the
- * agent_position_history time-stamped ledger. Picks the row whose [start_date,
- * end_date] window contains appDate. If multiple match, prefers the latest
- * start_date.
+ * agent_position_history time-stamped ledger. Picks the row whose
+ * [start_date, end_date] window contains appDate. If multiple rows match,
+ * prefers the latest start_date — and when start_dates tie (e.g. an
+ * upline reassignment that happened on the same day as a previous position
+ * change), breaks the tie on `created_at` DESC so the most recently inserted
+ * row wins. This matters specifically for owner-driven reassignments where
+ * the closed row's end_date and the new row's start_date both equal today.
  */
-function findPositionAt(
+export function findPositionAt(
   history: AgentPositionHistory[],
   agentId: string,
   appDate: string
@@ -57,11 +63,40 @@ function findPositionAt(
       (h.end_date == null || h.end_date >= appDate)
   );
   if (matches.length === 0) return null;
-  matches.sort((a, b) => b.start_date.localeCompare(a.start_date));
+  matches.sort((a, b) => {
+    const startCmp = b.start_date.localeCompare(a.start_date);
+    if (startCmp !== 0) return startCmp;
+    // Tiebreaker: most recently created row wins.
+    const aCreated = a.created_at ?? "";
+    const bCreated = b.created_at ?? "";
+    return bCreated.localeCompare(aCreated);
+  });
   return {
     position_id: matches[0].position_id as string,
     upline_email: matches[0].upline_email,
   };
+}
+
+/**
+ * Public helper: resolve an agent's upline + position as of a given date from
+ * a pre-fetched history array.
+ *
+ * Identical lookup to `findPositionAt`, but exported as the canonical
+ * "what was this user's upline on date X" helper so other surfaces
+ * (audits, payroll re-runs, future hierarchy reports) can reuse the same
+ * time-stamped logic without re-rolling. Pass the same `agent_position_history`
+ * row set the engine itself uses.
+ *
+ * Returns null when no open or applicable history row exists for that agent
+ * at that date — meaning the agent had no recorded position/upline at the
+ * time, which the commission engine treats as "no payouts above this agent."
+ */
+export function getUserUplineAt(
+  history: AgentPositionHistory[],
+  agentId: string,
+  date: string
+): PositionSnapshot | null {
+  return findPositionAt(history, agentId, date);
 }
 
 /**
@@ -148,10 +183,13 @@ export async function calculateAndSavePayouts(
     emailMap.set(a.email, a as Agent);
   }
 
-  // 2. Fetch position history for the tenant (we filter to relevant rows in JS)
+  // 2. Fetch position history for the tenant (we filter to relevant rows in JS).
+  // created_at is included so findPositionAt can break ties when two rows
+  // share start_date (e.g. an owner-driven upline reassign on the same day
+  // as a previous position change).
   const { data: historyRaw } = await supabaseClient
     .from("agent_position_history")
-    .select("agent_id, position_id, upline_email, start_date, end_date")
+    .select("agent_id, position_id, upline_email, start_date, end_date, created_at")
     .eq("tenant_id", tenant_id);
 
   const history = (historyRaw ?? []) as AgentPositionHistory[];
@@ -179,7 +217,7 @@ export async function calculateAndSavePayouts(
   if (!writingAgent) return;
   if (writingAgent.start_date && writingAgent.start_date > application_date) return;
 
-  const writingPos = findPositionAt(history, writingAgent.id, application_date);
+  const writingPos = getUserUplineAt(history, writingAgent.id, application_date);
   if (!writingPos) return;
 
   const directRate = findRate(
@@ -232,7 +270,7 @@ export async function calculateAndSavePayouts(
       continue;
     }
 
-    const uplinePos = findPositionAt(history, upline.id, application_date);
+    const uplinePos = getUserUplineAt(history, upline.id, application_date);
     if (!uplinePos) {
       currentUplineEmail = upline.upline_email;
       continue;

@@ -30,6 +30,8 @@ import { OrgTree } from "@/components/agents/OrgTree";
 import { useCanImport } from "@/hooks/useCanImport";
 import { getAgentRole } from "@/lib/agent-role";
 import { AgentRoleBadge } from "@/components/shared/AgentRoleBadge";
+import { ReassignUplineModal } from "@/components/agents/ReassignUplineModal";
+import { ArrowRightLeft } from "lucide-react";
 
 interface AgentEditForm {
   first_name: string;
@@ -58,6 +60,7 @@ const AgentRoster = () => {
   const [editingProfile, setEditingProfile] = useState(false);
   const [editForm, setEditForm] = useState<AgentEditForm>(emptyEditForm);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [reassignAgent, setReassignAgent] = useState<Agent | null>(null);
 
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents, isLoading, error, refetch } = useAgents();
@@ -311,6 +314,11 @@ const AgentRoster = () => {
                 <DropdownMenuItem onClick={() => handleCopyInviteLink(r)}>
                   <Copy className="mr-2 h-3.5 w-3.5" /> Copy Invite Link
                 </DropdownMenuItem>
+                {!r.is_owner && (
+                  <DropdownMenuItem onClick={() => setReassignAgent(r)}>
+                    <ArrowRightLeft className="mr-2 h-3.5 w-3.5" /> Reassign Upline
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   onClick={() => {
                     if (!confirm(`Archive ${r.first_name} ${r.last_name}? They will be moved to Archived Agents.`)) return;
@@ -406,6 +414,12 @@ const AgentRoster = () => {
       </div>
 
       <InviteAgentModal open={inviteOpen} onOpenChange={setInviteOpen} />
+
+      <ReassignUplineModal
+        open={!!reassignAgent}
+        onOpenChange={(v) => !v && setReassignAgent(null)}
+        agent={reassignAgent}
+      />
 
       <Sheet
         open={!!profileAgent}
