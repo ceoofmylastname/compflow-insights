@@ -64,6 +64,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useCanImport } from "@/hooks/useCanImport";
+import { computeDownlineAgentIds } from "@/lib/downline";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -72,6 +73,12 @@ import { useCanImport } from "@/hooks/useCanImport";
 interface PolicyImportWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Optional callback fired after the import loop finishes. Lets parent
+   * surfaces (e.g. Book of Business) react with toasts, query
+   * invalidation, or filter switches based on the result.
+   */
+  onImportComplete?: (result: ImportResult) => void;
 }
 
 interface AgentResolutionRow {
@@ -83,14 +90,23 @@ interface AgentResolutionRow {
   saveAsAlias: boolean;
   /** When email and writing-number resolution disagreed. */
   conflict?: { emailAgentId: string; writingNumberAgentId: string };
+  /**
+   * Set when the importer is a manager (not an owner) and the resolved
+   * agent is NOT in their downline tree. Rows with outOfScope are
+   * skipped at import time unless the manager picks an in-scope manual
+   * override.
+   */
+  outOfScope?: boolean;
 }
 
-interface ImportResult {
+export interface ImportResult {
   imported: number;
   payoutsCalculated: number;
   webhooksFired: number;
   skipped: number;
   aliasesSaved: number;
+  /** Subset of `imported` that was written with needs_review = true. */
+  flaggedForReview: number;
 }
 
 const STEPS = ["Upload", "Map Columns", "Resolve Agents", "Validate", "Import"] as const;
@@ -118,7 +134,7 @@ const FIELD_LABELS: Record<string, string> = {
 /*  Main Component                                                     */
 /* ------------------------------------------------------------------ */
 
-export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardProps) {
+export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: PolicyImportWizardProps) {
   const { canImport } = useCanImport();
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents } = useAgents();
@@ -347,6 +363,13 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
       }
     }
 
+    // Compute downline scope for non-owners. Owners can import for anyone in
+    // the tenant; managers are constrained to agents in their downline tree.
+    const isOwnerImporter = currentAgent.is_owner === true;
+    const downlineIds = isOwnerImporter
+      ? null
+      : computeDownlineAgentIds(currentAgent.email, agents ?? []);
+
     // Resolve each unique agent
     const resolutions: AgentResolutionRow[] = [];
     for (const [writingAgentId, carrier] of uniqueAgents) {
@@ -357,6 +380,10 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         supabase,
         carrierNameMap
       );
+      const outOfScope =
+        downlineIds != null &&
+        result.agentId != null &&
+        !downlineIds.has(result.agentId);
       resolutions.push({
         writingAgentId,
         carrier,
@@ -365,6 +392,7 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         manualAgentId: "",
         saveAsAlias: false,
         conflict: result.conflict,
+        outOfScope,
       });
     }
 
@@ -471,7 +499,16 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
       webhooksFired: 0,
       skipped: 0,
       aliasesSaved: 0,
+      flaggedForReview: 0,
     };
+
+    // Build a per-writing-agent-id lookup of the manager scope flag so we can
+    // skip out-of-scope rows. A manager's manual override may have moved a
+    // row into scope — only treat it as out-of-scope if the FINAL resolution
+    // (including override) lands on a non-downline agent.
+    const downlineIdsForImport = currentAgent.is_owner
+      ? null
+      : computeDownlineAgentIds(currentAgent.email, agents ?? []);
 
     const toImport = validRows;
     const total = toImport.length;
@@ -482,6 +519,14 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
 
       try {
         const resolvedAgentId = row.resolvedAgentId || currentAgent.id;
+
+        // Manager scope: skip if final resolution is outside their downline.
+        if (downlineIdsForImport != null && !downlineIdsForImport.has(resolvedAgentId)) {
+          result.skipped++;
+          setImportProgress(Math.round(((i + 1) / total) * 100));
+          continue;
+        }
+
         const status = m.status ? normalizeStatus(m.status) : "Submitted";
         const rawPremium = m.annual_premium ? cleanCurrency(m.annual_premium) : 0;
         const rawRefsCollected = m.refs_collected ? parseInt(m.refs_collected, 10) : 0;
@@ -634,6 +679,9 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
         }
 
         result.imported++;
+        if (reviewReasons.length > 0) {
+          result.flaggedForReview++;
+        }
 
         // Calculate payouts
         if (policy) {
@@ -709,7 +757,8 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
     setImportResult(result);
     setImporting(false);
     setStep(4);
-  }, [currentAgent, validRows, agentResolutions, agents, queryClient, importMode]);
+    onImportComplete?.(result);
+  }, [currentAgent, validRows, agentResolutions, agents, queryClient, importMode, onImportComplete]);
 
   /* ---------- Save carrier profile ---------- */
   const handleSaveProfile = useCallback(() => {
@@ -1106,6 +1155,15 @@ export function PolicyImportWizard({ open, onOpenChange }: PolicyImportWizardPro
                                   title="Email and writing-number lookups returned different agents. Defaulted to email match — use the override to confirm or correct."
                                 >
                                   <AlertTriangle className="h-2.5 w-2.5 mr-0.5" /> conflict
+                                </Badge>
+                              )}
+                              {r.outOfScope && !r.manualAgentId && (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[10px]"
+                                  title="Outside your downline. Owner-only import. Use the override to map this writing agent to someone in your downline, or this row will be skipped."
+                                >
+                                  <AlertTriangle className="h-2.5 w-2.5 mr-0.5" /> out of scope
                                 </Badge>
                               )}
                             </div>

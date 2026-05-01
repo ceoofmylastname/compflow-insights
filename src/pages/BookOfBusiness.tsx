@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, PlusCircle, AlertTriangle, Settings2, ChevronLeft } from "lucide-react";
+import { ChevronDown, ChevronRight, PlusCircle, AlertTriangle, Settings2, ChevronLeft, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,6 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PostDealModal } from "@/components/policies/PostDealModal";
+import { PolicyImportWizard, type ImportResult } from "@/components/import/PolicyImportWizard";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { useCanImport } from "@/hooks/useCanImport";
@@ -39,6 +40,7 @@ const BookOfBusiness = () => {
   const { dateFrom, dateTo } = useFilters();
   const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(null);
   const [postDealOpen, setPostDealOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [showLeadSource, setShowLeadSource] = useState(false);
   const [showEffectiveDate, setShowEffectiveDate] = useState(true);
   const [showPhone, setShowPhone] = useState(false);
@@ -302,6 +304,11 @@ const BookOfBusiness = () => {
                 </div>
               </PopoverContent>
             </Popover>
+            {canImport && (
+              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" /> Import CSV
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => setPostDealOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" /> Post a Deal
             </Button>
@@ -556,6 +563,28 @@ const BookOfBusiness = () => {
         )}
       </div>
       <PostDealModal open={postDealOpen} onOpenChange={setPostDealOpen} />
+      <PolicyImportWizard
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImportComplete={(result: ImportResult) => {
+          if (result.flaggedForReview > 0) {
+            toast.success(
+              `Imported ${result.imported} policies. ${result.flaggedForReview} flagged for review.`,
+              {
+                action: {
+                  label: "View",
+                  onClick: () => setNeedsReviewFilter(true),
+                },
+              }
+            );
+          } else {
+            toast.success(`Imported ${result.imported} policies.`);
+          }
+          if (result.skipped > 0) {
+            toast.info(`${result.skipped} rows skipped.`);
+          }
+        }}
+      />
     </AppLayout>
   );
 };
