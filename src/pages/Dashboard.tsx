@@ -25,7 +25,6 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, formatDistanceToNow } from "date-fns";
-import { useCanImport } from "@/hooks/useCanImport";
 
 const Dashboard = () => {
   const { canImport } = useCanImport();
@@ -51,7 +50,6 @@ const Dashboard = () => {
   });
 
   const { carriers: carrierList } = useCarrierOptions();
-  const { canImport } = useCanImport();
 
   // Recent policies (last 5)
   const { data: recentPoliciesRaw } = usePolicies({ limit: 5 });
