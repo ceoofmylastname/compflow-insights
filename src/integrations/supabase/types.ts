@@ -702,6 +702,8 @@ export type Database = {
           is_draft: boolean
           lead_source: string | null
           modal_premium: number | null
+          needs_review: boolean
+          needs_review_reasons: string[]
           notes: string | null
           policy_number: string | null
           product: string | null
@@ -730,6 +732,8 @@ export type Database = {
           is_draft?: boolean
           lead_source?: string | null
           modal_premium?: number | null
+          needs_review?: boolean
+          needs_review_reasons?: string[]
           notes?: string | null
           policy_number?: string | null
           product?: string | null
@@ -758,6 +762,8 @@ export type Database = {
           is_draft?: boolean
           lead_source?: string | null
           modal_premium?: number | null
+          needs_review?: boolean
+          needs_review_reasons?: string[]
           notes?: string | null
           policy_number?: string | null
           product?: string | null
