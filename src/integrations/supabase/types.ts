@@ -74,8 +74,7 @@ export type Database = {
           created_at: string
           end_date: string | null
           id: string
-          position_id: string | null
-          position_title: string
+          position_id: string
           start_date: string
           tenant_id: string
           upline_email: string | null
@@ -85,8 +84,7 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
-          position_id?: string | null
-          position_title: string
+          position_id: string
           start_date: string
           tenant_id: string
           upline_email?: string | null
@@ -96,8 +94,7 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
-          position_id?: string | null
-          position_title?: string
+          position_id?: string
           start_date?: string
           tenant_id?: string
           upline_email?: string | null
@@ -143,7 +140,6 @@ export type Database = {
           last_name: string
           npn: string | null
           phone: string | null
-          position: string | null
           start_date: string | null
           tenant_id: string
           upline_email: string | null
@@ -164,7 +160,6 @@ export type Database = {
           last_name: string
           npn?: string | null
           phone?: string | null
-          position?: string | null
           start_date?: string | null
           tenant_id: string
           upline_email?: string | null
@@ -185,7 +180,6 @@ export type Database = {
           last_name?: string
           npn?: string | null
           phone?: string | null
-          position?: string | null
           start_date?: string | null
           tenant_id?: string
           upline_email?: string | null
@@ -408,7 +402,6 @@ export type Database = {
           carrier: string
           created_at: string
           id: string
-          position: string
           position_id: string
           product: string
           rate: number
@@ -419,7 +412,6 @@ export type Database = {
           carrier: string
           created_at?: string
           id?: string
-          position: string
           position_id: string
           product: string
           rate: number
@@ -430,7 +422,6 @@ export type Database = {
           carrier?: string
           created_at?: string
           id?: string
-          position?: string
           position_id?: string
           product?: string
           rate?: number
@@ -519,7 +510,6 @@ export type Database = {
           created_at: string
           end_date: string | null
           id: string
-          position: string
           position_id: string
           product: string
           reason: string | null
@@ -532,7 +522,6 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
-          position: string
           position_id: string
           product: string
           reason?: string | null
@@ -545,7 +534,6 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
-          position?: string
           position_id?: string
           product?: string
           reason?: string | null
