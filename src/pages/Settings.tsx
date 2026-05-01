@@ -16,7 +16,19 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useWebhookConfigs, useCreateWebhook, useDeleteWebhook } from "@/hooks/useWebhookConfigs";
 import { useAgents } from "@/hooks/useAgents";
-import { Trash2, Send, Plus, RefreshCw, Camera, Copy, Globe, Lock, CheckCircle2, Clock, ExternalLink } from "lucide-react";
+import { Trash2, Send, Plus, RefreshCw, Camera, Copy, Globe, Lock, CheckCircle2, Clock, ExternalLink, Eye, EyeOff, Pencil } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  useTenantCustomFields,
+  useCreateCustomField,
+  useUpdateCustomField,
+  useDeleteCustomField,
+  generateFieldKey,
+  type TenantCustomField,
+  type CustomFieldDataType,
+  type CustomFieldAppliesTo,
+} from "@/hooks/useTenantCustomFields";
+import { useEffect } from "react";
 import { useCustomDomain } from "@/hooks/useCustomDomain";
 import type { Tenant } from "@/hooks/useTenant";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/formatters";
@@ -148,6 +160,7 @@ const Settings = () => {
             {isOwner && <TabsTrigger value="aliases">Carrier Aliases</TabsTrigger>}
             {isOwner && <TabsTrigger value="webhooks">Webhooks</TabsTrigger>}
             {isOwner && <TabsTrigger value="billing">Billing</TabsTrigger>}
+            {isOwner && <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>}
             {isOwner && <TabsTrigger value="danger">Danger Zone</TabsTrigger>}
           </TabsList>
 
@@ -262,6 +275,12 @@ const Settings = () => {
           {isOwner && (
             <TabsContent value="billing" className="space-y-4 mt-4">
               <BillingSection tenantId={currentAgent?.tenant_id} />
+            </TabsContent>
+          )}
+
+          {isOwner && (
+            <TabsContent value="custom-fields" className="space-y-4 mt-4">
+              <CustomFieldsSection />
             </TabsContent>
           )}
 
@@ -1100,6 +1119,417 @@ function DomainSection({ tenant }: { tenant?: Tenant | null }) {
         </Card>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Custom Fields Section                                              */
+/* ------------------------------------------------------------------ */
+
+const DATA_TYPES: { value: CustomFieldDataType; label: string }[] = [
+  { value: "text", label: "Text" },
+  { value: "number", label: "Number" },
+  { value: "currency", label: "Currency" },
+  { value: "date", label: "Date" },
+  { value: "boolean", label: "Boolean" },
+  { value: "email", label: "Email" },
+  { value: "phone", label: "Phone" },
+];
+
+const APPLIES_TO_OPTIONS: { value: CustomFieldAppliesTo; label: string }[] = [
+  { value: "policies", label: "Policies" },
+  { value: "agents", label: "Agents" },
+  { value: "commission_levels", label: "Commission Levels" },
+  { value: "all", label: "All Imports" },
+];
+
+interface CustomFieldFormState {
+  label: string;
+  key: string;
+  data_type: CustomFieldDataType;
+  required: boolean;
+  applies_to: CustomFieldAppliesTo;
+  visible_in_dashboard: boolean;
+}
+
+const emptyFormState: CustomFieldFormState = {
+  label: "",
+  key: "",
+  data_type: "text",
+  required: false,
+  applies_to: "policies",
+  visible_in_dashboard: true,
+};
+
+function CustomFieldsSection() {
+  const { data: fields, isLoading } = useTenantCustomFields();
+  const { data: agents } = useAgents();
+  const createField = useCreateCustomField();
+  const updateField = useUpdateCustomField();
+  const deleteField = useDeleteCustomField();
+
+  const [adding, setAdding] = useState(false);
+  const [addForm, setAddForm] = useState<CustomFieldFormState>(emptyFormState);
+  const [keyEdited, setKeyEdited] = useState(false);
+  const [editingField, setEditingField] = useState<TenantCustomField | null>(null);
+  const [editForm, setEditForm] = useState<CustomFieldFormState>(emptyFormState);
+  const [deletingField, setDeletingField] = useState<TenantCustomField | null>(null);
+
+  // Auto-generate key from label as the owner types — only until they
+  // explicitly edit the key field, then leave it alone.
+  useEffect(() => {
+    if (!keyEdited && adding) {
+      setAddForm((prev) => ({ ...prev, key: generateFieldKey(prev.label) }));
+    }
+  }, [addForm.label, keyEdited, adding]);
+
+  const resetAddForm = () => {
+    setAdding(false);
+    setAddForm(emptyFormState);
+    setKeyEdited(false);
+  };
+
+  const handleAddSubmit = () => {
+    if (!addForm.label.trim() || !addForm.key.trim()) {
+      toast.error("Label and key are required");
+      return;
+    }
+    createField.mutate(
+      {
+        field_label: addForm.label.trim(),
+        field_key: addForm.key.trim(),
+        data_type: addForm.data_type,
+        required: addForm.required,
+        applies_to: addForm.applies_to,
+        visible_in_dashboard: addForm.visible_in_dashboard,
+      },
+      { onSuccess: resetAddForm }
+    );
+  };
+
+  const handleStartEdit = (field: TenantCustomField) => {
+    setEditingField(field);
+    setEditForm({
+      label: field.field_label,
+      key: field.field_key, // immutable; shown disabled
+      data_type: field.data_type,
+      required: field.required,
+      applies_to: field.applies_to,
+      visible_in_dashboard: field.visible_in_dashboard,
+    });
+  };
+
+  const handleEditSave = () => {
+    if (!editingField) return;
+    if (!editForm.label.trim()) {
+      toast.error("Label is required");
+      return;
+    }
+    updateField.mutate(
+      {
+        id: editingField.id,
+        field_label: editForm.label.trim(),
+        data_type: editForm.data_type,
+        required: editForm.required,
+        applies_to: editForm.applies_to,
+        visible_in_dashboard: editForm.visible_in_dashboard,
+      },
+      { onSuccess: () => setEditingField(null) }
+    );
+  };
+
+  const handleToggleVisible = (field: TenantCustomField) => {
+    updateField.mutate({
+      id: field.id,
+      visible_in_dashboard: !field.visible_in_dashboard,
+    });
+  };
+
+  const handleDelete = () => {
+    if (!deletingField) return;
+    deleteField.mutate(deletingField.id, {
+      onSuccess: () => setDeletingField(null),
+    });
+  };
+
+  const getCreatorName = (authUserId: string | null) => {
+    if (!authUserId) return "—";
+    const a = agents?.find((x) => (x as any).auth_user_id === authUserId);
+    return a ? `${a.first_name} ${a.last_name}` : "—";
+  };
+
+  const formatAppliesTo = (v: CustomFieldAppliesTo) =>
+    APPLIES_TO_OPTIONS.find((o) => o.value === v)?.label ?? v;
+
+  const formatDataType = (v: CustomFieldDataType) =>
+    DATA_TYPES.find((o) => o.value === v)?.label ?? v;
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Custom Fields</CardTitle>
+            {!adding && (
+              <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add Custom Field
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Define your own fields for the import wizard. Stored as JSONB on the target table.
+            Field keys are immutable after creation — to rename a field, change its label.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Add form */}
+          {adding && (
+            <div className="rounded-lg border border-border p-4 space-y-3 bg-muted/30">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Field Label</Label>
+                  <Input
+                    value={addForm.label}
+                    onChange={(e) => setAddForm({ ...addForm, label: e.target.value })}
+                    placeholder="e.g. Agent Writing Number"
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Field Key</Label>
+                  <Input
+                    value={addForm.key}
+                    onChange={(e) => {
+                      setAddForm({ ...addForm, key: e.target.value });
+                      setKeyEdited(true);
+                    }}
+                    placeholder="agent_writing_number"
+                    className="h-8 text-sm font-mono"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    snake_case. Becomes the JSONB key.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Data Type</Label>
+                  <Select
+                    value={addForm.data_type}
+                    onValueChange={(v) => setAddForm({ ...addForm, data_type: v as CustomFieldDataType })}
+                  >
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {DATA_TYPES.map((dt) => (
+                        <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Applies To</Label>
+                  <Select
+                    value={addForm.applies_to}
+                    onValueChange={(v) => setAddForm({ ...addForm, applies_to: v as CustomFieldAppliesTo })}
+                  >
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {APPLIES_TO_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex gap-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={addForm.required}
+                    onCheckedChange={(v) => setAddForm({ ...addForm, required: !!v })}
+                  />
+                  Required on import
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={addForm.visible_in_dashboard}
+                    onCheckedChange={(v) => setAddForm({ ...addForm, visible_in_dashboard: !!v })}
+                  />
+                  Visible in dashboard
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleAddSubmit} disabled={createField.isPending}>
+                  {createField.isPending ? "Saving..." : "Save Field"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={resetAddForm} disabled={createField.isPending}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Fields table */}
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : !fields || fields.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No custom fields yet. Add one above, or define one inline while mapping a CSV import.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Label</TableHead>
+                  <TableHead>Key</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Applies To</TableHead>
+                  <TableHead>Required</TableHead>
+                  <TableHead>Visible</TableHead>
+                  <TableHead>Created By</TableHead>
+                  <TableHead className="w-28">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {fields.map((f) => (
+                  <TableRow key={f.id}>
+                    <TableCell className="font-medium">{f.field_label}</TableCell>
+                    <TableCell className="font-mono text-xs">{f.field_key}</TableCell>
+                    <TableCell className="text-xs">{formatDataType(f.data_type)}</TableCell>
+                    <TableCell className="text-xs">{formatAppliesTo(f.applies_to)}</TableCell>
+                    <TableCell className="text-xs">{f.required ? "Yes" : "No"}</TableCell>
+                    <TableCell className="text-xs">{f.visible_in_dashboard ? "Yes" : "No"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{getCreatorName(f.created_by)}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleStartEdit(f)} title="Edit">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => handleToggleVisible(f)}
+                          title={f.visible_in_dashboard ? "Hide from dashboard" : "Show in dashboard"}
+                        >
+                          {f.visible_in_dashboard ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => setDeletingField(f)}
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Edit dialog */}
+      <Dialog open={!!editingField} onOpenChange={(v) => !v && setEditingField(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Custom Field</DialogTitle>
+            <DialogDescription>
+              The field key cannot be changed after creation — change the label to rename.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Field Label</Label>
+              <Input
+                value={editForm.label}
+                onChange={(e) => setEditForm({ ...editForm, label: e.target.value })}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Field Key (immutable)</Label>
+              <Input value={editForm.key} disabled className="h-8 text-sm font-mono" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Data Type</Label>
+                <Select
+                  value={editForm.data_type}
+                  onValueChange={(v) => setEditForm({ ...editForm, data_type: v as CustomFieldDataType })}
+                >
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {DATA_TYPES.map((dt) => (
+                      <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Applies To</Label>
+                <Select
+                  value={editForm.applies_to}
+                  onValueChange={(v) => setEditForm({ ...editForm, applies_to: v as CustomFieldAppliesTo })}
+                >
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {APPLIES_TO_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={editForm.required}
+                  onCheckedChange={(v) => setEditForm({ ...editForm, required: !!v })}
+                />
+                Required on import
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={editForm.visible_in_dashboard}
+                  onCheckedChange={(v) => setEditForm({ ...editForm, visible_in_dashboard: !!v })}
+                />
+                Visible in dashboard
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingField(null)}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={updateField.isPending}>
+              {updateField.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deletingField} onOpenChange={(v) => !v && setDeletingField(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Custom Field</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-foreground">
+            Deleting <strong>{deletingField?.field_label}</strong> will remove it from the import
+            wizard and dashboard column pickers. Existing data already stored under this field will
+            remain in the database but will no longer be displayed. Continue?
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingField(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteField.isPending}>
+              {deleteField.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
