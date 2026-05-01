@@ -25,7 +25,6 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { format, subMonths, startOfMonth, endOfMonth, parseISO, formatDistanceToNow } from "date-fns";
-import { useCanImport } from "@/hooks/useCanImport";
 
 const Dashboard = () => {
   const { canImport } = useCanImport();
