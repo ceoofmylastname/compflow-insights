@@ -1,40 +1,36 @@
-## Apply BoB bulk delete migration
+## Apply agent_contracts self-service RLS migration
 
-Run the provided SQL as a single migration. It is purely additive (new table + new RPC) and matches the existing `useBulkDeletePolicies` hook and `BulkDeletePoliciesModal` already in the codebase, which call `bulk_delete_policies` and read `policy_deletions_audit.reason`.
+Run the provided SQL as a single migration. It replaces the agent_contracts policies so agents can manage their own writing numbers from Settings → My Writing Numbers, while owners and managers retain full team-wide access.
 
 ### What the migration does
 
-1. **Create `public.policy_deletions_audit`** — forensic trail of every deleted policy (tenant_id, policy snapshot fields, paid commission total at deletion, deleted_by, reason).
-   - Two indexes: `(tenant_id, deleted_at DESC)` and `(policy_id)`.
-   - RLS enabled. SELECT policy: only owners of the same tenant can read their tenant's audit rows. No INSERT/UPDATE/DELETE policies — writes happen through the SECURITY DEFINER RPC only.
-
-2. **Create `public.bulk_delete_policies(uuid[], text)` RPC** — SECURITY DEFINER, `SET search_path = public`.
-   - Asserts `auth.uid()` is set.
-   - Resolves caller's agent row, requires `is_owner = true`.
-   - Rejects cross-tenant policy ids.
-   - Snapshots each target policy into `policy_deletions_audit` (joining `commission_payouts` for paid totals).
-   - Deletes from `commission_payouts`, `policy_status_history`, then `policies` (scoped to caller's tenant).
-   - Returns one row per deleted policy with the audit id.
-   - `REVOKE ALL FROM PUBLIC` then `GRANT EXECUTE TO authenticated`.
+1. **Create `public.current_agent_id()`** — SECURITY DEFINER helper returning the caller's `agents.id`.
+2. **Create `public.is_owner_or_manager()`** — SECURITY DEFINER helper returning true if caller is an owner OR has at least one downline agent (matches the runtime "Manager" label in `src/lib/agent-role.ts`).
+3. **Drop all existing `agent_contracts` policies** (both legacy names and new names, idempotent via `IF EXISTS`).
+4. **Recreate four policies**:
+   - `agent_contracts_select` — self, downline, or owner/manager (tenant-scoped)
+   - `agent_contracts_insert` — self or owner/manager
+   - `agent_contracts_update` — self or owner/manager (USING + WITH CHECK)
+   - `agent_contracts_delete` — owner/manager only
 
 ### After it applies
 
 Run the verification query:
 
 ```sql
-SELECT
-  EXISTS (SELECT 1 FROM information_schema.tables
-            WHERE table_schema='public' AND table_name='policy_deletions_audit') AS has_audit_table,
-  EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid
-            WHERE n.nspname='public' AND p.proname='bulk_delete_policies') AS has_rpc;
+SELECT polname, polcmd
+  FROM pg_policy
+ WHERE polrelid = 'public.agent_contracts'::regclass
+ ORDER BY polname;
 ```
 
-Report both booleans back. Expected: `has_audit_table = true`, `has_rpc = true`.
+Report all rows back. Expected: exactly 4 rows — `agent_contracts_delete` (d), `agent_contracts_insert` (a), `agent_contracts_select` (r), `agent_contracts_update` (w).
 
-### No code changes
+### No frontend code changes
 
-`src/hooks/useBulkDeletePolicies.ts` and `src/components/policies/BulkDeletePoliciesModal.tsx` are already wired to this RPC and audit table. No frontend edits needed.
+`useAgentContracts.ts` already uses standard `.insert()` / `.delete()` against `agent_contracts` and will start working for non-owner agents on their own rows once the policies land. No edits to hooks, components, or types are required.
 
-### Notes / linter expectations
+### Notes
 
-The Supabase linter may flag `policy_deletions_audit` for "no INSERT policy" — this is intentional. All inserts go through the SECURITY DEFINER RPC; direct client inserts must be blocked.
+- The new `is_owner_or_manager()` helper is a small generalization of `is_tenant_owner()` and may be reused later for other tables that need manager-level write access.
+- Linter should stay clean; all four CRUD operations are covered by policies.
