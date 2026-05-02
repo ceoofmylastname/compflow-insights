@@ -805,7 +805,13 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         onOpenChange(v);
       }}
     >
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="
+          w-screen h-[100dvh] max-w-none max-h-none rounded-none p-4 gap-3
+          md:w-auto md:h-auto md:max-w-4xl md:max-h-[90vh] md:rounded-lg md:p-6 md:gap-4
+          overflow-y-auto
+        "
+      >
         <DialogHeader>
           <DialogTitle>Policy Import Wizard</DialogTitle>
         </DialogHeader>

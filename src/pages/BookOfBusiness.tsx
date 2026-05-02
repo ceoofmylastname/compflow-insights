@@ -268,9 +268,9 @@ const BookOfBusiness = () => {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Book of Business</h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -315,24 +315,24 @@ const BookOfBusiness = () => {
           </div>
         </div>
 
-        <div className="card-elevated p-3 flex flex-wrap gap-3 items-center">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search client name..." className="w-64" />
+        <div className="card-elevated p-3 flex flex-col md:flex-row md:flex-wrap gap-3 md:items-center">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search client name..." className="w-full md:w-64" />
           <Select value={statusFilter} onValueChange={handleFilterChange(setStatusFilter)}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+            <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="All Statuses" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               {POLICY_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={carrier} onValueChange={handleFilterChange(setCarrier)}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="All Carriers" /></SelectTrigger>
+            <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="All Carriers" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               {carriers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={contractTypeFilter} onValueChange={handleFilterChange(setContractTypeFilter)}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="All Contracts" /></SelectTrigger>
+            <SelectTrigger className="w-full md:w-36"><SelectValue placeholder="All Contracts" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="Direct Pay">Direct Pay</SelectItem>
@@ -341,7 +341,7 @@ const BookOfBusiness = () => {
           </Select>
           {leadSources.length > 0 && (
             <Select value={leadSourceFilter} onValueChange={handleFilterChange(setLeadSourceFilter)}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="All Sources" /></SelectTrigger>
+              <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="All Sources" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Sources</SelectItem>
                 {leadSources.map((ls) => <SelectItem key={ls} value={ls}>{ls}</SelectItem>)}

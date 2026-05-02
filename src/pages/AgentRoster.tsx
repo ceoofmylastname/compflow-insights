@@ -349,9 +349,9 @@ const AgentRoster = () => {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Agent Roster</h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
               <TabsList>
                 <TabsTrigger value="table">Table View</TabsTrigger>
@@ -370,19 +370,19 @@ const AgentRoster = () => {
         </div>
 
         {/* Search — shared between table and org chart views */}
-        <div className="card-elevated p-3 flex flex-wrap gap-3">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email..." className="w-64" />
+        <div className="card-elevated p-3 flex flex-col md:flex-row md:flex-wrap gap-3">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email..." className="w-full md:w-64" />
           {viewMode === "table" && (
             <>
               <Select value={positionFilter} onValueChange={setPositionFilter}>
-                <SelectTrigger className="w-40"><SelectValue placeholder="All Positions" /></SelectTrigger>
+                <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="All Positions" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   {positions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Select value={contractTypeFilter} onValueChange={setContractTypeFilter}>
-                <SelectTrigger className="w-40"><SelectValue placeholder="All Types" /></SelectTrigger>
+                <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="All Types" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="Direct Pay">Direct Pay</SelectItem>

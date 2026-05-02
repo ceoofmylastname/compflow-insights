@@ -494,7 +494,13 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
   return (
     <>
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        className="
+          w-screen h-[100dvh] max-w-none max-h-none rounded-none p-4 gap-3
+          md:w-auto md:h-auto md:max-w-3xl md:max-h-[85vh] md:rounded-lg md:p-6 md:gap-4
+          overflow-y-auto
+        "
+      >
         <DialogHeader>
           <DialogTitle>Import CSV</DialogTitle>
         </DialogHeader>

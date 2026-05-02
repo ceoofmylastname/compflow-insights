@@ -123,7 +123,12 @@ export function ReassignUplineModal({ open, onOpenChange, agent }: ReassignUplin
         onOpenChange(v);
       }}
     >
-      <DialogContent>
+      <DialogContent
+        className="
+          w-[calc(100vw-1rem)] max-w-none rounded-lg p-4
+          md:max-w-lg md:p-6
+        "
+      >
         <DialogHeader>
           <DialogTitle>
             Reassign Upline for {agent.first_name} {agent.last_name}

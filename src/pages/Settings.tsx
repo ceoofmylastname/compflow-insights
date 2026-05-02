@@ -152,17 +152,22 @@ const Settings = () => {
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
 
         <Tabs defaultValue="profile">
-          <TabsList>
-            <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="writing-numbers">My Writing Numbers</TabsTrigger>
-            {isOwner && <TabsTrigger value="agency">Agency</TabsTrigger>}
-            {isOwner && <TabsTrigger value="domain">Domain</TabsTrigger>}
-            {isOwner && <TabsTrigger value="aliases">Carrier Aliases</TabsTrigger>}
-            {isOwner && <TabsTrigger value="webhooks">Webhooks</TabsTrigger>}
-            {isOwner && <TabsTrigger value="billing">Billing</TabsTrigger>}
-            {isOwner && <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>}
-            {isOwner && <TabsTrigger value="danger">Danger Zone</TabsTrigger>}
-          </TabsList>
+          {/* Horizontal scroll container — Settings has 9 tabs for owners,
+              which overflows mobile viewports. Bleed to screen edges with
+              negative margin so the scroll feels natural. */}
+          <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide">
+            <TabsList className="w-max">
+              <TabsTrigger value="profile">Profile</TabsTrigger>
+              <TabsTrigger value="writing-numbers">My Writing Numbers</TabsTrigger>
+              {isOwner && <TabsTrigger value="agency">Agency</TabsTrigger>}
+              {isOwner && <TabsTrigger value="domain">Domain</TabsTrigger>}
+              {isOwner && <TabsTrigger value="aliases">Carrier Aliases</TabsTrigger>}
+              {isOwner && <TabsTrigger value="webhooks">Webhooks</TabsTrigger>}
+              {isOwner && <TabsTrigger value="billing">Billing</TabsTrigger>}
+              {isOwner && <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>}
+              {isOwner && <TabsTrigger value="danger">Danger Zone</TabsTrigger>}
+            </TabsList>
+          </div>
 
           <TabsContent value="profile" className="space-y-4 mt-4">
             <Card>
