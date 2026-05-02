@@ -38,8 +38,10 @@ export function usePolicies(filters: PolicyFilters = {}) {
 
       let query = supabase.from("policies").select("*", isPaginated ? { count: "exact" } : undefined);
 
-      // Exclude drafts by default
-      query = query.or("is_draft.is.null,is_draft.eq.false");
+      // Exclude drafts from Book of Business / production listings.
+      // Drafts live in the Drafts page and are private to the creator.
+      // status='Draft' is the canonical marker (Wiki/book-of-business-page.md).
+      query = query.neq("status", "Draft");
 
       if (filters.status && filters.status.length > 0) {
         query = query.in("status", filters.status);

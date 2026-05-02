@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,20 +17,28 @@ import {
 } from "@/components/ui/select";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents } from "@/hooks/useAgents";
-import { usePolicies, getPoliciesArray } from "@/hooks/usePolicies";
+import { usePolicies, getPoliciesArray, type Policy } from "@/hooks/usePolicies";
 import { supabase } from "@/integrations/supabase/client";
 import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { addDays, isValid, parseISO } from "date-fns";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
+import { QUERY_KEYS } from "@/lib/query-keys";
 
 interface PostDealModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * If provided, the modal opens in edit mode for that policy. Used by the
+   * Drafts page to edit an existing draft. Save updates the row in place
+   * rather than creating a new one.
+   */
+  editingPolicy?: Policy | null;
 }
 
-const STATUSES = ["Submitted", "Pending", "Active", "Terminated"];
+const STATUSES = ["Draft", "Submitted", "Pending", "Active", "Terminated"] as const;
+type PolicyStatus = (typeof STATUSES)[number];
 const CONTRACT_TYPES = ["Direct Pay", "LOA"];
 const LEAD_SOURCES = ["Provided", "Purchased", "Referral", "Self-Generated", "Other"];
 
@@ -38,7 +46,7 @@ interface FormErrors {
   [key: string]: string;
 }
 
-export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
+export function PostDealModal({ open, onOpenChange, editingPolicy }: PostDealModalProps) {
   const { data: currentAgent } = useCurrentAgent();
   const { data: agents } = useAgents();
   const { data: allPoliciesRaw } = usePolicies({});
@@ -53,7 +61,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
   const [carrier, setCarrier] = useState("");
   const [product, setProduct] = useState("");
   const [annualPremium, setAnnualPremium] = useState("");
-  const [status, setStatus] = useState("Submitted");
+  const [status, setStatus] = useState<PolicyStatus>("Draft");
   const [contractType, setContractType] = useState("");
   const [leadSource, setLeadSource] = useState("");
   const [writingAgentId, setWritingAgentId] = useState("");
@@ -65,12 +73,49 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
   const [billingInterval, setBillingInterval] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
 
   const isOwner = currentAgent?.is_owner ?? false;
+  const isEditMode = !!editingPolicy;
+  const isDraft = status === "Draft";
 
-  // Find existing custom fields if editing (by policy number match)
+  // Populate from editingPolicy when it changes (edit mode entry).
+  useEffect(() => {
+    if (!editingPolicy) return;
+    setPolicyNumber(editingPolicy.policy_number ?? "");
+    setApplicationDate(editingPolicy.application_date ?? "");
+    setClientName(editingPolicy.client_name ?? "");
+    setClientPhone(editingPolicy.client_phone ?? "");
+    setClientDob(editingPolicy.client_dob ?? "");
+    setCarrier(editingPolicy.carrier ?? "");
+    setProduct(editingPolicy.product ?? "");
+    setAnnualPremium(
+      editingPolicy.annual_premium != null ? String(editingPolicy.annual_premium) : ""
+    );
+    setStatus(((editingPolicy.status as PolicyStatus) ?? "Draft") as PolicyStatus);
+    setContractType(editingPolicy.contract_type ?? "");
+    setLeadSource(editingPolicy.lead_source ?? "");
+    setEffectiveDate(editingPolicy.effective_date ?? "");
+    setNotes(editingPolicy.notes ?? "");
+    setRefsCollected(
+      editingPolicy.refs_collected != null ? String(editingPolicy.refs_collected) : ""
+    );
+    setRefsSold(
+      editingPolicy.refs_sold != null ? String(editingPolicy.refs_sold) : ""
+    );
+    setModalPremium(
+      editingPolicy.modal_premium != null ? String(editingPolicy.modal_premium) : ""
+    );
+    setBillingInterval(editingPolicy.billing_interval ?? "");
+    setWritingAgentId(editingPolicy.resolved_agent_id ?? "");
+    setErrors({});
+  }, [editingPolicy]);
+
+  // Find existing custom fields if editing or matching policy_number
   const existingCustomFields = useMemo(() => {
+    if (editingPolicy?.custom_fields && typeof editingPolicy.custom_fields === "object" && !Array.isArray(editingPolicy.custom_fields)) {
+      const cf = editingPolicy.custom_fields as Record<string, string>;
+      if (Object.keys(cf).length > 0) return cf;
+    }
     if (!policyNumber.trim()) return null;
     const existing = allPolicies.find(
       (p) => p.policy_number === policyNumber.trim()
@@ -78,12 +123,21 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
     if (!existing?.custom_fields || typeof existing.custom_fields !== "object" || Array.isArray(existing.custom_fields)) return null;
     const cf = existing.custom_fields as Record<string, string>;
     return Object.keys(cf).length > 0 ? cf : null;
-  }, [policyNumber, allPolicies]);
+  }, [policyNumber, allPolicies, editingPolicy]);
 
   const { carriers, products: getProducts } = useCarrierOptions();
 
-  const validate = (): FormErrors => {
+  /**
+   * Validation rules differ by status.
+   *  - Draft: only client_name is required (it's a scratchpad).
+   *  - Any other status: full required set per Wiki/book-of-business-page.md.
+   */
+  const validate = (targetStatus: PolicyStatus): FormErrors => {
     const errs: FormErrors = {};
+    if (targetStatus === "Draft") {
+      if (!clientName.trim()) errs.clientName = "Client name is required, even on drafts";
+      return errs;
+    }
     if (!policyNumber.trim()) errs.policyNumber = "Policy number is required";
     if (!applicationDate) {
       errs.applicationDate = "Application date is required";
@@ -102,7 +156,6 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
     if (!annualPremium || isNaN(prem) || prem <= 0) {
       errs.annualPremium = "Annual premium must be greater than 0";
     }
-    if (!status) errs.status = "Status is required";
     if (!contractType) errs.contractType = "Contract type is required";
     return errs;
   };
@@ -116,7 +169,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
     setCarrier("");
     setProduct("");
     setAnnualPremium("");
-    setStatus("Submitted");
+    setStatus("Draft");
     setContractType("");
     setLeadSource("");
     setWritingAgentId("");
@@ -129,8 +182,8 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
     setErrors({});
   };
 
-  const handleSubmit = async () => {
-    const validationErrors = validate();
+  const handleSave = async () => {
+    const validationErrors = validate(status);
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
@@ -143,49 +196,69 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
     try {
       const resolvedAgentId =
         isOwner && writingAgentId ? writingAgentId : currentAgent.id;
+      const isStatusDraft = status === "Draft";
 
-      const { data: policy, error } = await supabase
-        .from("policies")
-        .upsert(
-          {
-            tenant_id: currentAgent.tenant_id,
-            policy_number: policyNumber.trim(),
-            application_date: applicationDate,
-            client_name: clientName.trim(),
-            client_phone: clientPhone.trim() || null,
-            client_dob: clientDob || null,
-            carrier: carrier.trim(),
-            product: product.trim(),
-            annual_premium: parseFloat(annualPremium),
-            status,
-            contract_type: contractType,
-            lead_source: leadSource || null,
-            effective_date: effectiveDate || null,
-            notes: notes.trim() || null,
-            refs_collected: refsCollected ? parseInt(refsCollected, 10) : 0,
-            refs_sold: refsSold ? parseInt(refsSold, 10) : 0,
-            modal_premium: modalPremium ? parseFloat(modalPremium) : null,
-            billing_interval: billingInterval || null,
-            resolved_agent_id: resolvedAgentId,
-            is_draft: false,
-          },
-          { onConflict: "policy_number,tenant_id", ignoreDuplicates: false }
-        )
-        .select()
-        .single();
+      // Common payload. Many fields can be empty on a draft.
+      const payload: Record<string, unknown> = {
+        tenant_id: currentAgent.tenant_id,
+        policy_number: policyNumber.trim() || (isStatusDraft ? `DRAFT-${Date.now()}` : ""),
+        application_date: applicationDate || (isStatusDraft ? new Date().toISOString().split("T")[0] : null),
+        client_name: clientName.trim(),
+        client_phone: clientPhone.trim() || null,
+        client_dob: clientDob || null,
+        carrier: carrier.trim() || null,
+        product: product.trim() || null,
+        annual_premium: annualPremium ? parseFloat(annualPremium) : 0,
+        status,
+        contract_type: contractType || null,
+        lead_source: leadSource || null,
+        effective_date: effectiveDate || null,
+        notes: notes.trim() || null,
+        refs_collected: refsCollected ? parseInt(refsCollected, 10) : 0,
+        refs_sold: refsSold ? parseInt(refsSold, 10) : 0,
+        modal_premium: modalPremium ? parseFloat(modalPremium) : null,
+        billing_interval: billingInterval || null,
+        resolved_agent_id: resolvedAgentId,
+        // Keep is_draft synced with status for backward compat with code paths
+        // that haven't migrated to the status-based check.
+        is_draft: isStatusDraft,
+        draft_saved_at: isStatusDraft ? new Date().toISOString() : null,
+      };
 
-      if (error) {
-        toast.error(`Failed to post deal: ${error.message}`);
+      let savedPolicy: { id: string; status: string } | null = null;
+      let saveError: { message: string } | null = null;
+
+      if (editingPolicy?.id) {
+        const { data, error } = await supabase
+          .from("policies")
+          .update(payload as any)
+          .eq("id", editingPolicy.id)
+          .select("id, status")
+          .single();
+        savedPolicy = data as { id: string; status: string } | null;
+        saveError = error;
+      } else {
+        const { data, error } = await supabase
+          .from("policies")
+          .upsert(payload as any, { onConflict: "policy_number,tenant_id", ignoreDuplicates: false })
+          .select("id, status")
+          .single();
+        savedPolicy = data as { id: string; status: string } | null;
+        saveError = error;
+      }
+
+      if (saveError) {
+        toast.error(`Failed to save: ${saveError.message}`);
         setSubmitting(false);
         return;
       }
 
-      if (policy) {
+      // Drafts skip downstream effects entirely (no commissions, no webhooks).
+      if (savedPolicy && !isStatusDraft) {
         try {
-          await calculateAndSavePayouts(policy.id, supabase);
+          await calculateAndSavePayouts(savedPolicy.id, supabase);
         } catch {}
 
-        // Fire webhooks if status is Active
         if (status === "Active") {
           const { data: activeWebhooks } = await supabase
             .from("webhook_configs")
@@ -194,9 +267,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
             .eq("is_active", true)
             .eq("event_type", "deal.posted" as any);
 
-          const webhooks = (activeWebhooks ?? []) as Array<{
-            webhook_url: string;
-          }>;
+          const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string }>;
           const agent = agents?.find((a) => a.id === resolvedAgentId);
 
           for (const config of webhooks) {
@@ -224,57 +295,21 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
 
       queryClient.invalidateQueries({ queryKey: ["policies"] });
       queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
-      toast.success("Deal posted successfully");
+      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.drafts] });
+
+      toast.success(
+        isStatusDraft
+          ? "Saved as draft"
+          : isEditMode
+          ? "Policy updated"
+          : "Deal posted"
+      );
       resetForm();
       onOpenChange(false);
     } catch (err: any) {
-      toast.error(`Failed to post deal: ${err.message}`);
+      toast.error(`Failed to save: ${err.message}`);
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleSaveDraft = async () => {
-    if (!currentAgent || !clientName.trim()) {
-      toast.error("At least a client name is required to save a draft");
-      return;
-    }
-    setSavingDraft(true);
-    try {
-      const resolvedAgentId =
-        isOwner && writingAgentId ? writingAgentId : currentAgent.id;
-      const { error } = await supabase.from("policies").insert({
-        tenant_id: currentAgent.tenant_id,
-        policy_number: policyNumber.trim() || `DRAFT-${Date.now()}`,
-        application_date: applicationDate || new Date().toISOString().split("T")[0],
-        client_name: clientName.trim(),
-        client_phone: clientPhone.trim() || null,
-        client_dob: clientDob || null,
-        carrier: carrier.trim() || null,
-        product: product.trim() || null,
-        annual_premium: annualPremium ? parseFloat(annualPremium) : 0,
-        status: status || "Submitted",
-        contract_type: contractType || null,
-        lead_source: leadSource || null,
-        effective_date: effectiveDate || null,
-        notes: notes.trim() || null,
-        refs_collected: refsCollected ? parseInt(refsCollected, 10) : 0,
-        refs_sold: refsSold ? parseInt(refsSold, 10) : 0,
-        modal_premium: modalPremium ? parseFloat(modalPremium) : null,
-        billing_interval: billingInterval || null,
-        resolved_agent_id: resolvedAgentId,
-        is_draft: true,
-        draft_saved_at: new Date().toISOString(),
-      } as any);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ["drafts"] });
-      toast.success("Saved as draft");
-      resetForm();
-      onOpenChange(false);
-    } catch (err: any) {
-      toast.error(`Failed to save draft: ${err.message}`);
-    } finally {
-      setSavingDraft(false);
     }
   };
 
@@ -286,16 +321,46 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
         if (!v) resetForm();
       }}
     >
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        className="
+          w-screen h-[100dvh] max-w-none max-h-none rounded-none p-4 gap-3
+          md:w-auto md:h-auto md:max-w-lg md:max-h-[85vh] md:rounded-lg md:p-6 md:gap-4
+          overflow-y-auto
+        "
+      >
         <DialogHeader>
-          <DialogTitle>Post a Deal</DialogTitle>
+          <DialogTitle>
+            {isEditMode ? "Edit Draft" : "Post a Deal"}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Status — driving validation. Draft is the default for new policies. */}
+          <div>
+            <Label>
+              Status <span className="text-destructive">*</span>
+            </Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as PolicyStatus)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isDraft && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Drafts stay private to you. They do not count toward billing, leaderboards, or commissions.
+              </p>
+            )}
+          </div>
+
           {/* Policy Number */}
           <div>
             <Label>
-              Policy Number <span className="text-destructive">*</span>
+              Policy Number {!isDraft && <span className="text-destructive">*</span>}
             </Label>
             <Input
               value={policyNumber}
@@ -303,16 +368,14 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               placeholder="e.g. POL-12345"
             />
             {errors.policyNumber && (
-              <p className="text-xs text-destructive mt-1">
-                {errors.policyNumber}
-              </p>
+              <p className="text-xs text-destructive mt-1">{errors.policyNumber}</p>
             )}
           </div>
 
           {/* Application Date */}
           <div>
             <Label>
-              Application Date <span className="text-destructive">*</span>
+              Application Date {!isDraft && <span className="text-destructive">*</span>}
             </Label>
             <Input
               type="date"
@@ -320,9 +383,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               onChange={(e) => setApplicationDate(e.target.value)}
             />
             {errors.applicationDate && (
-              <p className="text-xs text-destructive mt-1">
-                {errors.applicationDate}
-              </p>
+              <p className="text-xs text-destructive mt-1">{errors.applicationDate}</p>
             )}
           </div>
 
@@ -337,9 +398,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               placeholder="John Doe"
             />
             {errors.clientName && (
-              <p className="text-xs text-destructive mt-1">
-                {errors.clientName}
-              </p>
+              <p className="text-xs text-destructive mt-1">{errors.clientName}</p>
             )}
           </div>
 
@@ -366,7 +425,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
           {/* Carrier */}
           <div>
             <Label>
-              Carrier <span className="text-destructive">*</span>
+              Carrier {!isDraft && <span className="text-destructive">*</span>}
             </Label>
             {carriers.length > 0 ? (
               <Select value={carrier} onValueChange={(v) => { setCarrier(v); setProduct(""); }}>
@@ -394,7 +453,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
           {/* Product */}
           <div>
             <Label>
-              Product <span className="text-destructive">*</span>
+              Product {!isDraft && <span className="text-destructive">*</span>}
             </Label>
             {carrier && getProducts(carrier).length > 0 ? (
               <Select value={product} onValueChange={setProduct}>
@@ -422,7 +481,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
           {/* Annual Premium */}
           <div>
             <Label>
-              Annual Premium <span className="text-destructive">*</span>
+              Annual Premium {!isDraft && <span className="text-destructive">*</span>}
             </Label>
             <Input
               type="number"
@@ -433,38 +492,14 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               placeholder="0.00"
             />
             {errors.annualPremium && (
-              <p className="text-xs text-destructive mt-1">
-                {errors.annualPremium}
-              </p>
-            )}
-          </div>
-
-          {/* Status */}
-          <div>
-            <Label>
-              Status <span className="text-destructive">*</span>
-            </Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.status && (
-              <p className="text-xs text-destructive mt-1">{errors.status}</p>
+              <p className="text-xs text-destructive mt-1">{errors.annualPremium}</p>
             )}
           </div>
 
           {/* Contract Type */}
           <div>
             <Label>
-              Contract Type <span className="text-destructive">*</span>
+              Contract Type {!isDraft && <span className="text-destructive">*</span>}
             </Label>
             <Select value={contractType} onValueChange={setContractType}>
               <SelectTrigger>
@@ -472,16 +507,12 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               </SelectTrigger>
               <SelectContent>
                 {CONTRACT_TYPES.map((ct) => (
-                  <SelectItem key={ct} value={ct}>
-                    {ct}
-                  </SelectItem>
+                  <SelectItem key={ct} value={ct}>{ct}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {errors.contractType && (
-              <p className="text-xs text-destructive mt-1">
-                {errors.contractType}
-              </p>
+              <p className="text-xs text-destructive mt-1">{errors.contractType}</p>
             )}
           </div>
 
@@ -494,9 +525,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               </SelectTrigger>
               <SelectContent>
                 {LEAD_SOURCES.map((ls) => (
-                  <SelectItem key={ls} value={ls}>
-                    {ls}
-                  </SelectItem>
+                  <SelectItem key={ls} value={ls}>{ls}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -513,7 +542,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
           </div>
 
           {/* Modal Premium & Billing Interval */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <Label>Modal Premium</Label>
               <Input
@@ -542,7 +571,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
           </div>
 
           {/* Refs Collected & Refs Sold */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <Label>Refs Collected</Label>
               <Input
@@ -572,7 +601,7 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
               className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional notes about this deal..."
+              placeholder="Optional notes about this deal"
             />
           </div>
 
@@ -602,34 +631,30 @@ export function PostDealModal({ open, onOpenChange }: PostDealModalProps) {
           {existingCustomFields && (
             <div className="rounded-lg border border-border bg-muted/30 p-3">
               <p className="text-sm font-medium mb-2">Carrier Data (from import)</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
                 {Object.entries(existingCustomFields).map(([key, value]) => (
                   <div key={key} className="flex gap-2 text-sm">
                     <span className="text-muted-foreground shrink-0">{key}:</span>
-                    <span className="text-foreground">{value || "--"}</span>
+                    <span className="text-foreground">{value || "(empty)"}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={handleSaveDraft}
-              disabled={savingDraft || submitting}
-            >
-              {savingDraft ? "Saving..." : "Save as Draft"}
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={handleSubmit}
-              disabled={submitting || savingDraft}
-            >
-              {submitting ? "Posting..." : "Post Deal"}
-            </Button>
-          </div>
+          <Button
+            className="w-full"
+            onClick={handleSave}
+            disabled={submitting}
+          >
+            {submitting
+              ? "Saving..."
+              : isDraft
+              ? "Save Draft"
+              : isEditMode
+              ? "Save Changes"
+              : "Post Deal"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

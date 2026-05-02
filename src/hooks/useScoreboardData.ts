@@ -30,7 +30,7 @@ function usePoliciesForScoreboard(filters: ScoreboardFilters) {
       let query = supabase
         .from("policies")
         .select("id, resolved_agent_id, annual_premium, carrier, status, lead_source, application_date")
-        .or("is_draft.is.null,is_draft.eq.false");
+        .neq("status", "Draft");
 
       if (filters.dateFrom) query = query.gte("application_date", filters.dateFrom);
       if (filters.dateTo) query = query.lte("application_date", filters.dateTo);
