@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useWebhookConfigs, useCreateWebhook, useDeleteWebhook } from "@/hooks/useWebhookConfigs";
 import { useAgents } from "@/hooks/useAgents";
-import { Trash2, Send, Plus, RefreshCw, Camera, Copy, Globe, Lock, CheckCircle2, Clock, ExternalLink, Eye, EyeOff, Pencil } from "lucide-react";
+import { Trash2, Send, Plus, RefreshCw, Camera, Copy, Globe, Lock, CheckCircle2, Clock, ExternalLink, Eye, EyeOff, Pencil, CreditCard } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   useTenantCustomFields,
@@ -574,6 +574,36 @@ function CarrierAliasesSection({ tenantId }: { tenantId?: string }) {
 function BillingSection({ tenantId }: { tenantId?: string }) {
   const queryClient = useQueryClient();
   const [snapshotting, setSnapshotting] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+  const [startingCheckout, setStartingCheckout] = useState(false);
+
+  // Tenant billing state (Stripe IDs, status, trial info)
+  const { data: tenantBilling } = useQuery({
+    queryKey: ["tenantBilling", tenantId],
+    queryFn: async () => {
+      if (!tenantId) return null;
+      // Columns added by migration 20260505000000_active_agent_billing.sql.
+      // Cast through unknown until types are regenerated post-migration.
+      const { data, error } = await (supabase
+        .from("tenants") as any)
+        .select("id, stripe_customer_id, stripe_subscription_id, billing_status, trial_ends_at, last_invoice_paid_at, last_invoice_amount, payment_failure_count, soft_disabled_at")
+        .eq("id", tenantId)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as unknown as {
+        id: string;
+        stripe_customer_id: string | null;
+        stripe_subscription_id: string | null;
+        billing_status: string;
+        trial_ends_at: string | null;
+        last_invoice_paid_at: string | null;
+        last_invoice_amount: number | null;
+        payment_failure_count: number;
+        soft_disabled_at: string | null;
+      } | null;
+    },
+    enabled: !!tenantId,
+  });
 
   const { data: snapshots, isLoading } = useQuery({
     queryKey: ["billingSnapshots", tenantId],
@@ -591,16 +621,25 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
     enabled: !!tenantId,
   });
 
+  // Latest snapshot drives the "Projected next invoice" card
+  const latest = snapshots && snapshots.length > 0 ? (snapshots[0] as any) : null;
+
   const handleSnapshot = async () => {
     if (!tenantId) return;
     setSnapshotting(true);
     try {
-      const { data: count, error } = await supabase.rpc("snapshot_active_agents", {
+      // Use the new period-aware RPC. Period = rolling 30 days ending yesterday.
+      const end = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const { error } = await supabase.rpc("take_billing_snapshot" as any, {
         p_tenant_id: tenantId,
+        p_period_start_date: start,
+        p_period_end_date: end,
+        p_unit_price: null,
       });
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ["billingSnapshots"] });
-      toast.success(`Snapshot taken — ${count ?? 0} active agents recorded`);
+      toast.success("Snapshot taken");
     } catch (err: any) {
       toast.error(`Snapshot failed: ${err.message}`);
     } finally {
@@ -608,12 +647,136 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
     }
   };
 
+  const handleStartCheckout = async () => {
+    setStartingCheckout(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("stripe-create-checkout", {});
+      if (error) throw error;
+      const url = (data as { url?: string })?.url;
+      if (!url) throw new Error("No checkout URL returned");
+      window.location.href = url;
+    } catch (err: any) {
+      toast.error(`Checkout failed: ${err.message}`);
+    } finally {
+      setStartingCheckout(false);
+    }
+  };
+
+  const handleOpenPortal = async () => {
+    setOpeningPortal(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("stripe-customer-portal", {});
+      if (error) throw error;
+      const url = (data as { url?: string })?.url;
+      if (!url) throw new Error("No portal URL returned");
+      window.location.href = url;
+    } catch (err: any) {
+      toast.error(`Failed to open portal: ${err.message}`);
+    } finally {
+      setOpeningPortal(false);
+    }
+  };
+
+  const status = tenantBilling?.billing_status ?? "trial";
+  const hasSubscription = !!tenantBilling?.stripe_subscription_id;
+  const trialDaysRemaining = tenantBilling?.trial_ends_at
+    ? Math.max(0, Math.ceil((new Date(tenantBilling.trial_ends_at).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null;
+
+  const statusColors: Record<string, string> = {
+    trial: "bg-sky-100 text-sky-900 border-sky-300 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/30",
+    active: "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
+    past_due: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30",
+    soft_disabled: "bg-red-100 text-red-900 border-red-300 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30",
+    canceled: "bg-muted text-muted-foreground border-border",
+  };
+
   return (
     <>
+      {/* Status + actions card */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base">Billing</CardTitle>
+              <Badge variant="outline" className={statusColors[status] ?? statusColors.trial}>
+                {status === "soft_disabled" ? "Soft disabled" : status.replace("_", " ")}
+              </Badge>
+            </div>
+            <div className="flex gap-2">
+              {hasSubscription ? (
+                <Button variant="outline" size="sm" onClick={handleOpenPortal} disabled={openingPortal}>
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  {openingPortal ? "Opening..." : "Manage in Stripe"}
+                </Button>
+              ) : (
+                <Button size="sm" onClick={handleStartCheckout} disabled={startingCheckout}>
+                  <CreditCard className="h-4 w-4 mr-1" />
+                  {startingCheckout ? "Starting..." : "Subscribe"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {status === "trial" && trialDaysRemaining !== null && (
+            <p className="text-sm text-muted-foreground mb-3">
+              Trial: {trialDaysRemaining} day{trialDaysRemaining === 1 ? "" : "s"} remaining. After the trial ends, billing kicks in based on your active-agent count.
+            </p>
+          )}
+          {status === "past_due" && (
+            <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
+              Payment failed. Please update your payment method in Stripe. Three failures or 14 days past due will soft-disable the account.
+            </p>
+          )}
+          {status === "soft_disabled" && (
+            <p className="text-sm text-red-700 dark:text-red-400 mb-3">
+              Account soft-disabled due to billing issues. Resolve via Stripe to restore access.
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs text-muted-foreground">Active agents (latest period)</p>
+              <p className="text-2xl font-bold text-foreground mt-1">
+                {latest ? formatNumber(latest.active_agent_count) : "0"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs text-muted-foreground">Projected next invoice</p>
+              <p className="text-2xl font-bold text-foreground mt-1">
+                {latest?.total_amount != null
+                  ? formatCurrency(Number(latest.total_amount))
+                  : "—"}
+              </p>
+              {latest?.unit_price != null && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {formatCurrency(Number(latest.unit_price))} per active agent
+                </p>
+              )}
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs text-muted-foreground">Last invoice paid</p>
+              <p className="text-2xl font-bold text-foreground mt-1">
+                {tenantBilling?.last_invoice_amount != null
+                  ? formatCurrency(Number(tenantBilling.last_invoice_amount))
+                  : "—"}
+              </p>
+              {tenantBilling?.last_invoice_paid_at && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {formatDate(tenantBilling.last_invoice_paid_at)}
+                </p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Snapshot history */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Active Agent Billing</CardTitle>
+            <CardTitle className="text-base">Snapshot history</CardTitle>
             <Button variant="outline" size="sm" onClick={handleSnapshot} disabled={snapshotting}>
               <Camera className="h-4 w-4 mr-1" />
               {snapshotting ? "Snapshotting..." : "Take Snapshot"}
@@ -622,27 +785,41 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
         </CardHeader>
         <CardContent>
           <p className="text-xs text-muted-foreground mb-4">
-            Track monthly active agent counts for billing. Take a snapshot at the end of each month to record the current count.
+            Snapshots are taken automatically by the daily cron job. Manual snapshots are available for ad-hoc verification.
           </p>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading...</p>
           ) : !snapshots?.length ? (
-            <p className="text-sm text-muted-foreground">No billing snapshots yet. Take your first snapshot to start tracking.</p>
+            <p className="text-sm text-muted-foreground">No snapshots yet.</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Snapshot Date</TableHead>
+                  <TableHead>Period</TableHead>
                   <TableHead className="text-right">Active Agents</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead>Reported to Stripe</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {snapshots.map((s: any) => (
                   <TableRow key={s.id}>
                     <TableCell>{formatDate(s.snapshot_date)}</TableCell>
-                    <TableCell className="text-right font-semibold">{formatNumber(s.active_agent_count)}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{s.notes || "--"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {s.period_start_date && s.period_end_date
+                        ? `${formatDate(s.period_start_date)} → ${formatDate(s.period_end_date)}`
+                        : ""}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {formatNumber(s.active_agent_count)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {s.total_amount != null ? formatCurrency(Number(s.total_amount)) : ""}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {s.reported_to_stripe_at ? formatDate(s.reported_to_stripe_at) : "Not reported"}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
