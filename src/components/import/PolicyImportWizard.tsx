@@ -100,6 +100,14 @@ interface AgentResolutionRow {
   method: string | null;
   manualAgentId: string;
   saveAsAlias: boolean;
+  /**
+   * How many CSV rows in this upload share this resolution key
+   * (writing_agent_id or, for email-only rows, the email). Surfaced
+   * in the Resolve Agents step so the owner sees the blast radius:
+   * "3 policies" / "4 policies (will be unassigned)" instead of
+   * "1 writing number" with no policy-count context.
+   */
+  policiesCount: number;
   /** When email and writing-number resolution disagreed. */
   conflict?: { emailAgentId: string; writingNumberAgentId: string };
   /**
@@ -462,6 +470,9 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       carrier: string;
     };
     const uniqueInputs = new Map<string, ResolveInput>();
+    // Count CSV rows that share each resolution key so the
+    // Resolve Agents step can show policy counts per row.
+    const policiesCountByKey = new Map<string, number>();
     for (const row of rows) {
       const { mapped } = applyColumnMapping(headers, row, columnMappings, activeCustomFields);
       const wai = mapped.writing_agent_id?.trim() ?? "";
@@ -478,6 +489,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
           carrier,
         });
       }
+      policiesCountByKey.set(key, (policiesCountByKey.get(key) ?? 0) + 1);
     }
 
     // Compute downline scope for non-owners. Owners can import for anyone in
@@ -489,7 +501,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
 
     // Resolve each unique input
     const resolutions: AgentResolutionRow[] = [];
-    for (const input of uniqueInputs.values()) {
+    for (const [key, input] of uniqueInputs) {
       const result = await resolveAgent(
         input.writingAgentId,
         input.agentEmail,
@@ -513,6 +525,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         saveAsAlias: false,
         conflict: result.conflict,
         outOfScope,
+        policiesCount: policiesCountByKey.get(key) ?? 0,
       });
     }
 
@@ -1441,6 +1454,12 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   </span>
                 )}
               </p>
+              {agentResolutions.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {agentResolutions.length} writing number{agentResolutions.length === 1 ? "" : "s"} covering{" "}
+                  {agentResolutions.reduce((s, r) => s + r.policiesCount, 0)} policies in this upload.
+                </p>
+              )}
               {agentResolutions.some((r) => r.method === "orphan" && !r.manualAgentId) && (
                 <p className="text-xs text-muted-foreground">
                   Unassigned rows still import. Add the writing number to the right agent's contracts later (or use the override) to auto-link them.
@@ -1478,10 +1497,18 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                       const resolvedAgentDisplay =
                         r.resolvedAgentName ??
                         (cachedAgent ? `${cachedAgent.first_name} ${cachedAgent.last_name}`.trim() : null);
+                      const isOrphanPending = r.method === "orphan" && !r.manualAgentId;
                       return (
-                        <TableRow key={r.writingAgentId}>
-                          <TableCell className="text-xs font-mono">
-                            {r.writingAgentId}
+                        <TableRow key={r.writingAgentId || `email:${r.agentEmail ?? ""}`}>
+                          <TableCell className="text-xs font-mono align-top">
+                            <div>{r.writingAgentId || (r.agentEmail ? <span className="italic text-muted-foreground">{r.agentEmail}</span> : "—")}</div>
+                            <div className={cn(
+                              "text-[10px] mt-0.5",
+                              isOrphanPending ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                            )}>
+                              {r.policiesCount} {r.policiesCount === 1 ? "policy" : "policies"}
+                              {isOrphanPending && " (will be unassigned)"}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs">{r.carrier}</TableCell>
                           <TableCell>
