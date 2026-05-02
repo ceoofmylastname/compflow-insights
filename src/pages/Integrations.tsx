@@ -132,6 +132,7 @@ function WebhooksSection() {
                   <SelectItem value="policy.submitted">policy.submitted</SelectItem>
                   <SelectItem value="policy.issued">policy.issued</SelectItem>
                   <SelectItem value="policy.issue_paid">policy.issue_paid</SelectItem>
+                  <SelectItem value="policy.deleted">policy.deleted</SelectItem>
                 </SelectContent>
               </Select>
             </div>

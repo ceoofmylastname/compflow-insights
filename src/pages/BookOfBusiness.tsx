@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, PlusCircle, AlertTriangle, Settings2, ChevronLeft, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, PlusCircle, AlertTriangle, Settings2, ChevronLeft, Upload, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -24,6 +24,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PostDealModal } from "@/components/policies/PostDealModal";
 import { PolicyImportWizard, type ImportResult } from "@/components/import/PolicyImportWizard";
+import { BulkDeletePoliciesModal, type BulkDeleteSummary } from "@/components/policies/BulkDeletePoliciesModal";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { useCanImport } from "@/hooks/useCanImport";
@@ -77,6 +78,19 @@ const BookOfBusiness = () => {
   const queryClient = useQueryClient();
   const { data: currentAgent } = useCurrentAgent();
   const { canImport } = useCanImport();
+
+  // Bulk-delete selection state per Wiki/book-of-business-page.md
+  // (owner bulk delete). Three modes:
+  //   selectedIds: per-row checkbox set (page-scoped).
+  //   selectAllMatching: when true, the action bar operates on every
+  //                      row matching the current filter (not just the
+  //                      visible page). Selection set in this mode is
+  //                      derived on submit, not maintained here.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteSummary, setBulkDeleteSummary] = useState<BulkDeleteSummary | null>(null);
+  const [matchingMetaLoading, setMatchingMetaLoading] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -151,6 +165,167 @@ const BookOfBusiness = () => {
     }
     return result;
   }, [policies, hasRiskFilter, loaOnlyFilter, needsReviewFilter]);
+
+  // Drop the per-row selection any time the visible filter set changes
+  // — selecting rows on one filter then changing filters would leave
+  // stale ids in the set. Filter-scoped mode also resets here.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    debouncedSearch, carrier, statusFilter, bucketFilter, agentFilter,
+    dateFrom, dateTo, leadSourceFilter, contractTypeFilter,
+    hasRiskFilter, loaOnlyFilter, needsReviewFilter,
+  ]);
+
+  const isOwnerForBulk = currentAgent?.is_owner ?? false;
+
+  // Header-checkbox state for the visible page. Tri-state-ish via the
+  // indeterminate flag on the underlying primitive.
+  const visibleIds = useMemo(() => filteredPolicies.map((p) => p.id), [filteredPolicies]);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+
+  const toggleVisible = (checked: boolean) => {
+    setSelectAllMatching(false);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        for (const id of visibleIds) next.add(id);
+      } else {
+        for (const id of visibleIds) next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleRow = (id: string, checked: boolean) => {
+    setSelectAllMatching(false);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  // Premium total of the rows currently selected (page-scope only).
+  const selectedPremiumOnPage = useMemo(() => {
+    return filteredPolicies
+      .filter((p) => selectedIds.has(p.id))
+      .reduce((s, p) => s + (p.annual_premium || 0), 0);
+  }, [filteredPolicies, selectedIds]);
+
+  // Build the BulkDeleteSummary the modal needs. For page scope the ids
+  // and totals are already in memory. For filter scope we re-query the
+  // matching ids + totals from Supabase so the math reflects every row,
+  // not just the current page.
+  const openDeleteModal = async () => {
+    if (!isOwnerForBulk) return;
+
+    if (selectAllMatching) {
+      setMatchingMetaLoading(true);
+      try {
+        // Re-build the same WHERE shape as usePolicies (page-agnostic).
+        let q = supabase.from("policies").select("id, annual_premium").neq("status", "Draft");
+        const statuses =
+          statusFilter && statusFilter !== "all"
+            ? [statusFilter]
+            : bucketFilter && bucketFilter !== "all"
+              ? BUCKET_FILTERS[bucketFilter]
+              : undefined;
+        if (statuses && statuses.length > 0) q = q.in("status", statuses);
+        if (carrier && carrier !== "all") q = q.eq("carrier", carrier);
+        if (agentFilter) q = q.eq("resolved_agent_id", agentFilter);
+        if (contractTypeFilter && contractTypeFilter !== "all") q = q.eq("contract_type", contractTypeFilter);
+        if (dateFrom) q = q.gte("application_date", dateFrom);
+        if (dateTo) q = q.lte("application_date", dateTo);
+        if (leadSourceFilter && leadSourceFilter !== "all") q = q.eq("lead_source", leadSourceFilter);
+        if (debouncedSearch) q = q.ilike("client_name", `%${debouncedSearch}%`);
+
+        const { data, error: matchErr } = await q;
+        if (matchErr) throw matchErr;
+        let matching = (data ?? []) as Array<{ id: string; annual_premium: number | null }>;
+
+        // Client-side filters that don't have SQL equivalents in this
+        // table (chargeback_risk, contract_type=LOA, needs_review) need
+        // a follow-up filter pass against the in-memory page rows. The
+        // filter-scoped path can't honor them perfectly without joining
+        // the same client-side rules; for now if any of these are on
+        // we narrow the matching set to ids that also satisfy the
+        // visible page rules. This errs on the side of fewer deletes.
+        const clientFilterActive = hasRiskFilter || loaOnlyFilter || needsReviewFilter;
+        if (clientFilterActive) {
+          const visibleSet = new Set(filteredPolicies.map((p) => p.id));
+          matching = matching.filter((m) => visibleSet.has(m.id));
+        }
+
+        const policyIds = matching.map((m) => m.id);
+        const totalPremium = matching.reduce((s, m) => s + (Number(m.annual_premium) || 0), 0);
+
+        // Paid commission total for the filter-scoped set.
+        let totalPaidCommission = 0;
+        if (policyIds.length > 0) {
+          const { data: payouts } = await (supabase
+            .from("commission_payouts")
+            .select("commission_amount")
+            .in("policy_id", policyIds) as any)
+            .eq("payment_status", "paid");
+          totalPaidCommission = (payouts ?? []).reduce(
+            (s, r: any) => s + (Number(r.commission_amount) || 0),
+            0
+          );
+        }
+
+        setBulkDeleteSummary({
+          policyIds,
+          totalPremium,
+          totalPaidCommission,
+          scope: "filter",
+        });
+        setBulkDeleteOpen(true);
+      } catch (e: any) {
+        toast.error(e.message || "Failed to compute filter totals");
+      } finally {
+        setMatchingMetaLoading(false);
+      }
+      return;
+    }
+
+    // Page-scope path: ids already in memory.
+    const policyIds = Array.from(selectedIds);
+    if (policyIds.length === 0) return;
+    setMatchingMetaLoading(true);
+    try {
+      const { data: payouts } = await (supabase
+        .from("commission_payouts")
+        .select("commission_amount")
+        .in("policy_id", policyIds) as any)
+        .eq("payment_status", "paid");
+      const totalPaidCommission = (payouts ?? []).reduce(
+        (s, r: any) => s + (Number(r.commission_amount) || 0),
+        0
+      );
+      setBulkDeleteSummary({
+        policyIds,
+        totalPremium: selectedPremiumOnPage,
+        totalPaidCommission,
+        scope: "page",
+      });
+      setBulkDeleteOpen(true);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to compute selection totals");
+    } finally {
+      setMatchingMetaLoading(false);
+    }
+  };
+
+  const handleDeleted = () => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+    setBulkDeleteSummary(null);
+  };
 
   const handleStatusChange = async (policyId: string, newStatus: string) => {
     const policy = policies.find(p => p.id === policyId);
@@ -465,6 +640,61 @@ const BookOfBusiness = () => {
           </label>
         </div>
 
+        {/* Owner-only sticky action bar. Hidden entirely for non-owners
+            and when nothing is selected. Renders just above the table so
+            it scrolls with the page rather than docking globally. */}
+        {isOwnerForBulk && (selectedIds.size > 0 || selectAllMatching) && (
+          <div
+            className={`rounded-md border px-3 py-2 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 ${
+              selectAllMatching
+                ? "border-destructive/60 bg-destructive/10"
+                : "border-primary/40 bg-primary/5"
+            }`}
+          >
+            <div className="flex items-center gap-2 text-sm flex-1 min-w-0">
+              <span className="font-semibold text-foreground">
+                {selectAllMatching
+                  ? `Operating on every policy that matches the current filter (${totalCount}).`
+                  : `${selectedIds.size} ${selectedIds.size === 1 ? "policy" : "policies"} selected on this page.`}
+              </span>
+              {!selectAllMatching && totalCount > visibleIds.length && allVisibleSelected && (
+                <button
+                  type="button"
+                  onClick={() => setSelectAllMatching(true)}
+                  className="text-primary underline text-xs whitespace-nowrap"
+                >
+                  Select all {totalCount} matching the current filter
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedIds(new Set());
+                  setSelectAllMatching(false);
+                }}
+              >
+                <X className="h-3.5 w-3.5 mr-1" /> Clear
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={openDeleteModal}
+                disabled={matchingMetaLoading || (!selectAllMatching && selectedIds.size === 0)}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+                {matchingMetaLoading
+                  ? "Computing..."
+                  : `Delete ${selectAllMatching ? totalCount : selectedIds.size} ${
+                      (selectAllMatching ? totalCount : selectedIds.size) === 1 ? "policy" : "policies"
+                    }`}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <SkeletonTable />
         ) : filteredPolicies.length === 0 ? (
@@ -481,6 +711,24 @@ const BookOfBusiness = () => {
               <Table>
                 <TableHeader>
                   <TableRow className="border-b-2 border-border bg-gradient-to-r from-muted/60 to-muted/30 hover:bg-transparent">
+                    {isOwnerForBulk && (
+                      <TableHead className="w-9 px-2">
+                        <Checkbox
+                          checked={
+                            selectAllMatching
+                              ? true
+                              : allVisibleSelected
+                                ? true
+                                : someVisibleSelected
+                                  ? "indeterminate"
+                                  : false
+                          }
+                          onCheckedChange={(v) => toggleVisible(v === true)}
+                          aria-label="Select all visible rows"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </TableHead>
+                    )}
                     <TableHead className="w-8"></TableHead>
                     {columns.map((col) => (
                       <TableHead key={String(col.key)} className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground h-10">{col.label}</TableHead>
@@ -490,12 +738,25 @@ const BookOfBusiness = () => {
                 <TableBody>
                   {filteredPolicies.map((policy) => {
                     const isExpanded = expandedPolicyId === policy.id;
+                    const isSelected = selectAllMatching || selectedIds.has(policy.id);
                     return (
                       <React.Fragment key={policy.id}>
                         <TableRow
-                          className="cursor-pointer border-b border-border/50 table-row-hover"
+                          className={`cursor-pointer border-b border-border/50 table-row-hover ${
+                            isSelected ? "bg-primary/5" : ""
+                          }`}
                           onClick={() => setExpandedPolicyId(isExpanded ? null : policy.id)}
                         >
+                          {isOwnerForBulk && (
+                            <TableCell className="w-9 px-2" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={isSelected}
+                                disabled={selectAllMatching}
+                                onCheckedChange={(v) => toggleRow(policy.id, v === true)}
+                                aria-label={`Select policy ${policy.policy_number || ""}`}
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="w-8 px-2">
                             {isExpanded ? (
                               <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -511,7 +772,7 @@ const BookOfBusiness = () => {
                         </TableRow>
                         {isExpanded && (
                           <TableRow key={`${policy.id}-detail`}>
-                            <TableCell colSpan={columns.length + 1} className="bg-accent/20 p-0">
+                            <TableCell colSpan={columns.length + 1 + (isOwnerForBulk ? 1 : 0)} className="bg-accent/20 p-0">
                               <div className="px-6 py-3 space-y-3">
                                 {/* Policy Details */}
                                 <div>
@@ -649,6 +910,12 @@ const BookOfBusiness = () => {
           </>
         )}
       </div>
+      <BulkDeletePoliciesModal
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        summary={bulkDeleteSummary}
+        onDeleted={handleDeleted}
+      />
       <PostDealModal open={postDealOpen} onOpenChange={setPostDealOpen} />
       <PolicyImportWizard
         open={importOpen}
