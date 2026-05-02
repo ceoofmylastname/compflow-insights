@@ -1,105 +1,97 @@
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/use-auth";
+import { useEffect, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import CFLogo from "@/components/CFLogo";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { useOnboardingState, useUpdateOnboardingState } from "@/hooks/useOnboardingState";
+import { Card, CardContent } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
+import { OnboardingProgressHeader } from "@/components/onboarding/OnboardingProgressHeader";
+import { Step1AgencyProfile } from "@/components/onboarding/Step1AgencyProfile";
+import { Step2Positions } from "@/components/onboarding/Step2Positions";
+import { Step3FirstCarrier } from "@/components/onboarding/Step3FirstCarrier";
+import { Step4InviteAgents } from "@/components/onboarding/Step4InviteAgents";
+import { Step5Webhook } from "@/components/onboarding/Step5Webhook";
+import { Step6Done } from "@/components/onboarding/Step6Done";
 
-const steps = [
-  { label: "Import your agent roster", description: "Owners only. Upload your team hierarchy via CSV." },
-  { label: "Import commission levels", description: "Owners only. Upload your carrier comp grids." },
-  { label: "Import your first policies", description: "Owners and managers. Upload carrier policy reports to populate your book of business." },
-  { label: "Invite your first agent", description: "Send invite links so your agents can claim their accounts and enter their writing numbers." },
+const STEP_LABELS = [
+  "Agency profile",
+  "Positions blueprint",
+  "First carrier",
+  "Invite agents",
+  "Webhook (optional)",
+  "Done",
 ];
 
 const Onboarding = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { data: currentAgent } = useCurrentAgent();
+  const { data: currentAgent, isLoading: agentLoading } = useCurrentAgent();
+  const { data: state, isLoading: stateLoading } = useOnboardingState();
+  const update = useUpdateOnboardingState();
+  const [step, setStep] = useState<number>(1);
 
-  const tenantId = currentAgent?.tenant_id;
+  // Resume at the next-uncompleted step on first paint.
+  useEffect(() => {
+    if (!state) return;
+    if (state.completed_at) return; // already done — render Step 6 / will redirect below
+    const resumeAt = Math.min(6, Math.max(1, (state.step_completed ?? 0) + 1));
+    setStep(resumeAt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.tenant_id]);
 
-  const { data: counts, isLoading } = useQuery({
-    queryKey: ["onboardingCounts", tenantId],
-    queryFn: async () => {
-      if (!tenantId) return { agents: 0, levels: 0, policies: 0, invites: 0 };
+  if (agentLoading || stateLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
-      const [agentsRes, levelsRes, policiesRes, invitesRes] = await Promise.all([
-        supabase.from("agents").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase.from("commission_levels").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase.from("policies").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        supabase.from("invites").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-      ]);
+  // Non-owner: bounce to dashboard.
+  if (currentAgent && currentAgent.is_owner !== true) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
-      return {
-        agents: agentsRes.count ?? 0,
-        levels: levelsRes.count ?? 0,
-        policies: policiesRes.count ?? 0,
-        invites: invitesRes.count ?? 0,
-      };
-    },
-    enabled: !!tenantId,
-  });
+  // Already complete and the owner navigated back here intentionally — let
+  // them re-run the final screen but keep the redirect-out friendly.
+  if (state?.completed_at && step !== 6) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
-  const completedSteps = [
-    (counts?.agents ?? 0) > 1,
-    (counts?.levels ?? 0) >= 1,
-    (counts?.policies ?? 0) >= 1,
-    (counts?.invites ?? 0) >= 1,
-  ];
+  const advance = async (nextStep: number) => {
+    // Persist the highest step the owner has reached. Step6Done writes
+    // completed_at separately.
+    const reached = Math.max(state?.step_completed ?? 0, nextStep - 1);
+    await update.mutateAsync({ step_completed: reached });
+    setStep(nextStep);
+  };
 
-  const allComplete = completedSteps.every(Boolean);
+  const handleBack = () => setStep((s) => Math.max(1, s - 1));
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-lg">
-        <CardHeader className="items-center text-center">
-          <CFLogo size="lg" />
-          <CardTitle className="mt-4 text-2xl">Get Started with BaseshopHQ</CardTitle>
-          <p className="text-muted-foreground">Complete these steps to set up your agency</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : allComplete ? (
-            <div className="text-center space-y-4 py-4">
-              <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
-              <p className="text-lg font-semibold text-foreground">You're all set!</p>
-              <p className="text-sm text-muted-foreground">Your agency is fully configured and ready to go.</p>
-              <Button className="w-full" onClick={() => navigate("/dashboard")}>
-                Go to Dashboard
-              </Button>
-            </div>
-          ) : (
-            <>
-              {steps.map((step, i) => (
-                <div key={i} className="flex items-start gap-3 rounded-lg border border-border p-4">
-                  {completedSteps[i] ? (
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600 shrink-0" />
-                  ) : (
-                    <Circle className="mt-0.5 h-5 w-5 text-muted-foreground shrink-0" />
-                  )}
-                  <div className="flex-1">
-                    <p className="font-medium text-foreground">{step.label}</p>
-                    <p className="text-sm text-muted-foreground">{step.description}</p>
-                  </div>
-                  {!completedSteps[i] && (
-                    <Button variant="outline" size="sm" onClick={() => navigate("/dashboard")}>
-                      Set Up
-                    </Button>
-                  )}
-                </div>
-              ))}
-              <Button className="w-full mt-4" variant="outline" onClick={() => navigate("/dashboard")}>
-                Skip for Now
-              </Button>
-            </>
-          )}
+    <div className="min-h-screen bg-background flex items-start sm:items-center justify-center p-4 py-8">
+      <Card className="w-full max-w-2xl">
+        <CardContent className="p-6 sm:p-8 space-y-6">
+          <OnboardingProgressHeader
+            currentStep={step}
+            totalSteps={6}
+            stepLabel={STEP_LABELS[step - 1]}
+          />
+
+          {step === 1 && <Step1AgencyProfile onNext={() => advance(2)} />}
+          {step === 2 && <Step2Positions onNext={() => advance(3)} onBack={handleBack} />}
+          {step === 3 && <Step3FirstCarrier onNext={() => advance(4)} onBack={handleBack} />}
+          {step === 4 && <Step4InviteAgents onNext={() => advance(5)} onBack={handleBack} />}
+          {step === 5 && <Step5Webhook onNext={() => advance(6)} onBack={handleBack} />}
+          {step === 6 && <Step6Done onBack={handleBack} />}
+
+          <div className="pt-2 border-t border-border">
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Save and finish later
+            </button>
+          </div>
         </CardContent>
       </Card>
     </div>

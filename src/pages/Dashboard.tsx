@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CSVImportModal } from "@/components/shared/CSVImportModal";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
 import { PostDealModal } from "@/components/policies/PostDealModal";
+import { OnboardingBanner } from "@/components/onboarding/OnboardingBanner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
@@ -173,6 +174,7 @@ const Dashboard = () => {
   return (
     <AppLayout>
       <div className="space-y-6">
+        <OnboardingBanner />
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
