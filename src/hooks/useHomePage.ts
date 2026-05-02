@@ -11,6 +11,9 @@
  *                              carve-out per hierarchy-permissions-model.md)
  *   - useRecentActivity      : view-down feed (self + downline) of the
  *                              last 20 events
+ *
+ * TODO (Prompt 4 follow-up): test coverage for broadcast scope filtering,
+ * action-item auto-dismiss, and promotion math is still queued.
  */
 
 import { useEffect, useMemo } from "react";
@@ -158,6 +161,23 @@ export function useDismissActionItem() {
 /*  leadership_broadcasts                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Three targeting shapes for the visibility scope picker added in the
+ * Prompt 4 follow-up:
+ *   { all: true }                                 — whole tenant
+ *   { downlines: true, owner_id }                 — poster's downline
+ *                                                   (recursive, includes
+ *                                                   the poster themselves)
+ *   { positions: ["<position_id>", ...] }         — specific positions
+ *
+ * The reader filter in useLeadershipBroadcasts is the source of truth for
+ * how each shape narrows the audience.
+ */
+export type BroadcastTargeting =
+  | { all: true }
+  | { downlines: true; owner_id: string }
+  | { positions: string[] };
+
 export interface LeadershipBroadcast {
   id: string;
   tenant_id: string;
@@ -167,7 +187,7 @@ export interface LeadershipBroadcast {
   image_url: string | null;
   cta_text: string | null;
   cta_url: string | null;
-  targeting: { all?: boolean; positions?: string[] };
+  targeting: BroadcastTargeting;
   start_at: string;
   end_at: string | null;
   is_active: boolean;
@@ -176,10 +196,11 @@ export interface LeadershipBroadcast {
 
 export function useLeadershipBroadcasts() {
   const { data: currentAgent } = useCurrentAgent();
+  const { data: agents } = useAgents();
   return useQuery({
-    queryKey: ["leadershipBroadcasts", currentAgent?.tenant_id, currentAgent?.position_id],
+    queryKey: ["leadershipBroadcasts", currentAgent?.tenant_id, currentAgent?.position_id, currentAgent?.id],
     queryFn: async (): Promise<LeadershipBroadcast[]> => {
-      if (!currentAgent) return [];
+      if (!currentAgent || !agents) return [];
       const now = new Date().toISOString();
       const { data, error } = await supabase
         .from("leadership_broadcasts")
@@ -190,21 +211,35 @@ export function useLeadershipBroadcasts() {
         .order("start_at", { ascending: false });
       if (error) throw error;
 
-      const all = (data ?? []) as unknown as LeadershipBroadcast[];
+      const rows = (data ?? []) as unknown as LeadershipBroadcast[];
 
       // Apply end_at + targeting client-side. RLS already gated the read
-      // to tenant members; this layer narrows by audience.
-      return all.filter((b) => {
+      // to tenant members; this layer narrows by audience per the three
+      // shapes in BroadcastTargeting.
+      return rows.filter((b) => {
         if (b.end_at && new Date(b.end_at) < new Date()) return false;
-        const t = b.targeting ?? { all: true };
-        if (t.all) return true;
-        if (Array.isArray(t.positions) && currentAgent.position_id) {
+        const t = (b.targeting ?? { all: true }) as BroadcastTargeting;
+
+        if ("all" in t && t.all) return true;
+
+        if ("downlines" in t && t.downlines) {
+          // Poster always sees their own broadcast; everyone in their
+          // downline tree sees it too. Walks `upline_email` recursively
+          // via computeDownlineAgentIds.
+          if (currentAgent.id === t.owner_id) return true;
+          const owner = agents.find((a) => a.id === t.owner_id);
+          if (!owner) return false;
+          const downlineIds = computeDownlineAgentIds(owner.email, agents);
+          return downlineIds.has(currentAgent.id);
+        }
+
+        if ("positions" in t && Array.isArray(t.positions) && currentAgent.position_id) {
           return t.positions.includes(currentAgent.position_id);
         }
         return false;
       });
     },
-    enabled: !!currentAgent,
+    enabled: !!currentAgent && !!agents,
     staleTime: 60 * 1000,
   });
 }
@@ -445,13 +480,15 @@ export function useHomeLeaderboards(tab: LeaderboardTab) {
       if (!currentAgent || !agents) return [];
 
       // Top Producers: rank by Booked + Realized premium MTD.
+      // 'Active' alias dropped: the seven-status data migration (commit
+      // d449ebe) already routed every Active row to Issued.
       if (tab === "producers") {
         const since = formatISO(startOfMonth(new Date()), { representation: "date" });
         const { data: rows } = await supabase
           .from("policies")
           .select("resolved_agent_id, annual_premium")
           .eq("tenant_id", currentAgent.tenant_id)
-          .in("status", ["Issued", "Issue Paid", "Active"])
+          .in("status", ["Issued", "Issue Paid"])
           .gte("application_date", since);
         const map = new Map<string, number>();
         for (const r of (rows ?? []) as any[]) {
@@ -486,13 +523,13 @@ export function useHomeLeaderboards(tab: LeaderboardTab) {
             .from("policies")
             .select("resolved_agent_id, annual_premium")
             .eq("tenant_id", currentAgent.tenant_id)
-            .in("status", ["Issued", "Issue Paid", "Active"])
+            .in("status", ["Issued", "Issue Paid"])
             .gte("application_date", thisStart),
           supabase
             .from("policies")
             .select("resolved_agent_id, annual_premium")
             .eq("tenant_id", currentAgent.tenant_id)
-            .in("status", ["Issued", "Issue Paid", "Active"])
+            .in("status", ["Issued", "Issue Paid"])
             .gte("application_date", lastStart)
             .lt("application_date", thisStart),
         ]);

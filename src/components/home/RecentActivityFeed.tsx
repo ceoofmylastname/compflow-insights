@@ -6,6 +6,11 @@ import { formatDistanceToNow, parseISO } from "date-fns";
  * View-down activity feed per Wiki/realtime-updates-and-hierarchy-cascade.md.
  * Owner sees tenant-wide; everyone else sees self + downline. Capped at
  * the last 20 events to keep the home page snappy.
+ *
+ * TODO (Prompt 5): consume `milestone.hit` events ($10K, $50K, $100K,
+ * $250K, $500K, $1M annual premium) once the Webhook events expansion
+ * lands the emitter. Render alongside policy_submitted / policy_issued /
+ * policy_issue_paid / agent_added.
  */
 export function RecentActivityFeed() {
   const { data: events, isLoading } = useRecentActivity(20);
