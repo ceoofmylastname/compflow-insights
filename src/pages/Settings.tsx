@@ -28,6 +28,7 @@ import {
   type CustomFieldDataType,
   type CustomFieldAppliesTo,
 } from "@/hooks/useTenantCustomFields";
+import { useAgentCapStatus } from "@/hooks/useAgentCapStatus";
 import { useEffect } from "react";
 import { useCustomDomain } from "@/hooks/useCustomDomain";
 import type { Tenant } from "@/hooks/useTenant";
@@ -571,22 +572,48 @@ function CarrierAliasesSection({ tenantId }: { tenantId?: string }) {
   );
 }
 
+type Tier = "starter" | "growth" | "pro" | "enterprise";
+
+const TIER_DEFS: Array<{
+  tier: Tier;
+  label: string;
+  price: string;
+  cap: string;
+  whiteLabelEligible: boolean;
+}> = [
+  { tier: "starter", label: "Starter", price: "$97/mo", cap: "3 agents", whiteLabelEligible: false },
+  { tier: "growth", label: "Growth", price: "$297/mo", cap: "10 agents", whiteLabelEligible: true },
+  { tier: "pro", label: "Pro", price: "$497/mo", cap: "50 agents", whiteLabelEligible: true },
+  { tier: "enterprise", label: "Enterprise", price: "metered active agent", cap: "unlimited", whiteLabelEligible: true },
+];
+
+function tierIndex(t: Tier | null): number {
+  if (!t) return -1;
+  return ["starter", "growth", "pro", "enterprise"].indexOf(t);
+}
+
 function BillingSection({ tenantId }: { tenantId?: string }) {
   const queryClient = useQueryClient();
   const [snapshotting, setSnapshotting] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
-  const [startingCheckout, setStartingCheckout] = useState(false);
+  const [startingCheckout, setStartingCheckout] = useState<Tier | null>(null);
+  const [changingTier, setChangingTier] = useState<Tier | null>(null);
+  const [togglingWL, setTogglingWL] = useState(false);
+  const [includeWLOnCheckout, setIncludeWLOnCheckout] = useState(false);
+
+  // Agent cap usage (drives the cap progress bar in the tier card)
+  const { data: capStatus } = useAgentCapStatus();
 
   // Tenant billing state (Stripe IDs, status, trial info)
   const { data: tenantBilling } = useQuery({
     queryKey: ["tenantBilling", tenantId],
     queryFn: async () => {
       if (!tenantId) return null;
-      // Columns added by migration 20260505000000_active_agent_billing.sql.
-      // Cast through unknown until types are regenerated post-migration.
+      // Columns added across migrations 20260505 and 20260506.
+      // Cast through unknown until types regen.
       const { data, error } = await (supabase
         .from("tenants") as any)
-        .select("id, stripe_customer_id, stripe_subscription_id, billing_status, trial_ends_at, last_invoice_paid_at, last_invoice_amount, payment_failure_count, soft_disabled_at")
+        .select("id, stripe_customer_id, stripe_subscription_id, billing_status, trial_ends_at, last_invoice_paid_at, last_invoice_amount, payment_failure_count, soft_disabled_at, current_plan_tier, agent_cap, white_label_addon_active, is_in_trial")
         .eq("id", tenantId)
         .maybeSingle();
       if (error) throw error;
@@ -600,6 +627,10 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
         last_invoice_amount: number | null;
         payment_failure_count: number;
         soft_disabled_at: string | null;
+        current_plan_tier: Tier | null;
+        agent_cap: number | null;
+        white_label_addon_active: boolean;
+        is_in_trial: boolean;
       } | null;
     },
     enabled: !!tenantId,
@@ -647,10 +678,13 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
     }
   };
 
-  const handleStartCheckout = async () => {
-    setStartingCheckout(true);
+  const handleStartCheckout = async (tier: Tier) => {
+    setStartingCheckout(tier);
     try {
-      const { data, error } = await supabase.functions.invoke("stripe-create-checkout", {});
+      const wl = includeWLOnCheckout && tier !== "starter";
+      const { data, error } = await supabase.functions.invoke("stripe-create-checkout", {
+        body: { tier, whiteLabel: wl },
+      });
       if (error) throw error;
       const url = (data as { url?: string })?.url;
       if (!url) throw new Error("No checkout URL returned");
@@ -658,7 +692,43 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
     } catch (err: any) {
       toast.error(`Checkout failed: ${err.message}`);
     } finally {
-      setStartingCheckout(false);
+      setStartingCheckout(null);
+    }
+  };
+
+  const handleChangeTier = async (target: Tier) => {
+    setChangingTier(target);
+    try {
+      const { data, error } = await supabase.functions.invoke("stripe-update-tier", {
+        body: { target_tier: target },
+      });
+      if (error) throw error;
+      const status = (data as { status?: string })?.status;
+      if (status === "upgrade_applied") toast.success(`Upgraded to ${target}. Prorated charge applied.`);
+      else if (status === "downgrade_scheduled") toast.success(`Downgrade to ${target} scheduled at end of period.`);
+      else if (status === "noop") toast.info(`Already on ${target}.`);
+      queryClient.invalidateQueries({ queryKey: ["tenantBilling"] });
+      queryClient.invalidateQueries({ queryKey: ["agentCapStatus"] });
+    } catch (err: any) {
+      toast.error(`Tier change failed: ${err.message}`);
+    } finally {
+      setChangingTier(null);
+    }
+  };
+
+  const handleToggleWhiteLabel = async (enable: boolean) => {
+    setTogglingWL(true);
+    try {
+      const { error } = await supabase.functions.invoke("stripe-toggle-white-label", {
+        body: { enable },
+      });
+      if (error) throw error;
+      toast.success(enable ? "White-label add-on enabled" : "White-label removal scheduled at end of period");
+      queryClient.invalidateQueries({ queryKey: ["tenantBilling"] });
+    } catch (err: any) {
+      toast.error(`White-label toggle failed: ${err.message}`);
+    } finally {
+      setTogglingWL(false);
     }
   };
 
@@ -679,6 +749,10 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
 
   const status = tenantBilling?.billing_status ?? "trial";
   const hasSubscription = !!tenantBilling?.stripe_subscription_id;
+  const currentTier = tenantBilling?.current_plan_tier ?? null;
+  const isEnterprise = currentTier === "enterprise";
+  const wlActive = !!tenantBilling?.white_label_addon_active;
+  const wlEligible = currentTier ? currentTier !== "starter" : false;
   const trialDaysRemaining = tenantBilling?.trial_ends_at
     ? Math.max(0, Math.ceil((new Date(tenantBilling.trial_ends_at).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
     : null;
@@ -697,22 +771,27 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <CardTitle className="text-base">Billing</CardTitle>
               <Badge variant="outline" className={statusColors[status] ?? statusColors.trial}>
                 {status === "soft_disabled" ? "Soft disabled" : status.replace("_", " ")}
               </Badge>
+              {currentTier && (
+                <Badge variant="outline" className="capitalize">
+                  {currentTier}
+                </Badge>
+              )}
+              {wlActive && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30">
+                  White-label
+                </Badge>
+              )}
             </div>
-            <div className="flex gap-2">
-              {hasSubscription ? (
+            <div className="flex gap-2 flex-wrap">
+              {hasSubscription && (
                 <Button variant="outline" size="sm" onClick={handleOpenPortal} disabled={openingPortal}>
                   <ExternalLink className="h-4 w-4 mr-1" />
                   {openingPortal ? "Opening..." : "Manage in Stripe"}
-                </Button>
-              ) : (
-                <Button size="sm" onClick={handleStartCheckout} disabled={startingCheckout}>
-                  <CreditCard className="h-4 w-4 mr-1" />
-                  {startingCheckout ? "Starting..." : "Subscribe"}
                 </Button>
               )}
             </div>
@@ -737,22 +816,44 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="rounded-lg border border-border p-3">
-              <p className="text-xs text-muted-foreground">Active agents (latest period)</p>
-              <p className="text-2xl font-bold text-foreground mt-1">
-                {latest ? formatNumber(latest.active_agent_count) : "0"}
+              <p className="text-xs text-muted-foreground">
+                {isEnterprise ? "Active agents (latest period)" : "Agent seats used"}
               </p>
+              <p className="text-2xl font-bold text-foreground mt-1">
+                {tenantBilling?.agent_cap != null && capStatus
+                  ? `${capStatus.current} / ${tenantBilling.agent_cap}`
+                  : isEnterprise && latest
+                  ? formatNumber(latest.active_agent_count)
+                  : capStatus
+                  ? formatNumber(capStatus.current)
+                  : "0"}
+              </p>
+              {capStatus && capStatus.cap !== null && (
+                <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={
+                      capStatus.at_cap
+                        ? "h-full bg-destructive"
+                        : capStatus.near_cap
+                        ? "h-full bg-amber-500"
+                        : "h-full bg-primary"
+                    }
+                    style={{ width: `${Math.min(100, capStatus.pct_used)}%` }}
+                  />
+                </div>
+              )}
             </div>
             <div className="rounded-lg border border-border p-3">
               <p className="text-xs text-muted-foreground">Projected next invoice</p>
               <p className="text-2xl font-bold text-foreground mt-1">
-                {latest?.total_amount != null
+                {isEnterprise && latest?.total_amount != null
                   ? formatCurrency(Number(latest.total_amount))
+                  : currentTier
+                  ? TIER_DEFS.find((t) => t.tier === currentTier)?.price ?? "—"
                   : "—"}
               </p>
-              {latest?.unit_price != null && (
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  {formatCurrency(Number(latest.unit_price))} per active agent
-                </p>
+              {wlActive && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">+ $97/mo white-label</p>
               )}
             </div>
             <div className="rounded-lg border border-border p-3">
@@ -772,7 +873,120 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
         </CardContent>
       </Card>
 
-      {/* Snapshot history */}
+      {/* Tier picker / upgrade-downgrade */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {hasSubscription ? "Plan" : "Choose a plan"}
+          </CardTitle>
+          {!hasSubscription && (
+            <p className="text-xs text-muted-foreground mt-1">
+              All self-serve plans include a 14-day trial. Enterprise is sales-led; contact us if you need 50+ agents or active-agent metering.
+            </p>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            {TIER_DEFS.map((t) => {
+              const isCurrent = currentTier === t.tier;
+              const isUpgrade = currentTier && tierIndex(t.tier) > tierIndex(currentTier);
+              const isDowngrade = currentTier && tierIndex(t.tier) < tierIndex(currentTier);
+              return (
+                <div
+                  key={t.tier}
+                  className={
+                    isCurrent
+                      ? "rounded-lg border-2 border-primary p-3 bg-primary/5"
+                      : "rounded-lg border border-border p-3"
+                  }
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="font-semibold text-foreground capitalize">{t.label}</p>
+                    {isCurrent && <Badge variant="outline" className="text-[10px]">Current</Badge>}
+                  </div>
+                  <p className="text-xl font-bold">{t.price}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t.cap}</p>
+                  {!hasSubscription && (
+                    <Button
+                      size="sm"
+                      className="w-full mt-3"
+                      variant={t.tier === "pro" ? "default" : "outline"}
+                      onClick={() => handleStartCheckout(t.tier)}
+                      disabled={startingCheckout !== null || t.tier === "enterprise"}
+                    >
+                      {startingCheckout === t.tier
+                        ? "Starting..."
+                        : t.tier === "enterprise"
+                        ? "Contact us"
+                        : "Subscribe"}
+                    </Button>
+                  )}
+                  {hasSubscription && !isCurrent && (
+                    <Button
+                      size="sm"
+                      className="w-full mt-3"
+                      variant="outline"
+                      onClick={() => handleChangeTier(t.tier)}
+                      disabled={changingTier !== null || t.tier === "enterprise"}
+                    >
+                      {changingTier === t.tier
+                        ? "Changing..."
+                        : isUpgrade
+                        ? "Upgrade"
+                        : isDowngrade
+                        ? "Downgrade"
+                        : t.tier === "enterprise"
+                        ? "Contact us"
+                        : "Switch"}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* White-label add-on toggle */}
+          {!hasSubscription && (
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <Switch
+                checked={includeWLOnCheckout}
+                onCheckedChange={(v) => setIncludeWLOnCheckout(!!v)}
+              />
+              <div>
+                <span className="font-medium">Add white-label ($97/mo)</span>
+                <p className="text-xs text-muted-foreground">
+                  Custom domain, your branding, your voice. Available on Growth, Pro, Enterprise.
+                </p>
+              </div>
+            </label>
+          )}
+          {hasSubscription && wlEligible && (
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <Switch
+                checked={wlActive}
+                onCheckedChange={(v) => handleToggleWhiteLabel(!!v)}
+                disabled={togglingWL}
+              />
+              <div>
+                <span className="font-medium">White-label add-on ($97/mo)</span>
+                <p className="text-xs text-muted-foreground">
+                  {wlActive
+                    ? "Active. Removing schedules unbinding at end of period."
+                    : "Adds custom domain + your branding. Prorated immediately."}
+                </p>
+              </div>
+            </label>
+          )}
+          {hasSubscription && !wlEligible && (
+            <p className="text-xs text-muted-foreground">
+              White-label is available on Growth, Pro, or Enterprise. Upgrade your tier to enable it.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Snapshot history — Enterprise only (other tiers don't meter usage) */}
+      {isEnterprise && (
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -827,6 +1041,7 @@ function BillingSection({ tenantId }: { tenantId?: string }) {
           )}
         </CardContent>
       </Card>
+      )}
     </>
   );
 }

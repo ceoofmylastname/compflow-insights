@@ -2,6 +2,8 @@
 
 Code is shipped. These steps must be done **once** in your Stripe account and Supabase project before billing works end to end.
 
+> **Note:** This replaces an earlier setup doc that used a single metered price + $497 setup fee. Per the 2026-05-01 pricing lock, the model is now **four flat tiers (Starter / Growth / Pro / Enterprise)** with **no setup fee** and an optional **white-label add-on**.
+
 ## 1. Create a Stripe account + grab your keys
 
 1. Go to [dashboard.stripe.com](https://dashboard.stripe.com) and sign up (or sign in)
@@ -12,34 +14,48 @@ Code is shipped. These steps must be done **once** in your Stripe account and Su
 
 ## 2. Create the products and prices
 
-In the Stripe dashboard, go to **Catalog → Products → Add product**.
+In **Catalog → Products → Add product** in Stripe.
 
-### Product 1 — "Base Shop HQ Active Agents" (recurring, metered, tiered)
+### Product 1 — "Base Shop HQ Starter"
 
-- **Name:** Base Shop HQ Active Agents
-- **Pricing model:** **Standard pricing** with **Tiered pricing → Volume**
-- **Billing period:** Monthly
-- **Usage type:** **Metered** (we report quantity at end of period)
-- **Tiers (Volume):**
-  - First 49 units: $30.00 per unit
-  - 50+ units: $25.00 per unit
-- **Aggregation:** "Most recent usage record during period"
+- Pricing model: **Standard pricing**, recurring monthly
+- Price: **$97.00 USD / month**
+- Copy the Price ID → `STRIPE_PRICE_STARTER`
 
-After creation, copy the **Price ID** (starts with `price_...`). This is `STRIPE_PRICE_ACTIVE_AGENTS`.
+### Product 2 — "Base Shop HQ Growth"
 
-### Product 2 — "Base Shop HQ Setup Fee" (one-time)
+- Pricing model: **Standard pricing**, recurring monthly
+- Price: **$297.00 USD / month**
+- Copy the Price ID → `STRIPE_PRICE_GROWTH`
 
-- **Name:** Base Shop HQ Setup Fee
-- **Pricing model:** Standard, one-time
-- **Price:** $497.00 USD
+### Product 3 — "Base Shop HQ Pro"
 
-Copy the **Price ID** → `STRIPE_PRICE_SETUP_FEE`.
+- Pricing model: **Standard pricing**, recurring monthly
+- Price: **$497.00 USD / month**
+- Copy the Price ID → `STRIPE_PRICE_PRO`
+
+### Product 4 — "Base Shop HQ Enterprise" (metered)
+
+- Pricing model: **Standard pricing → Recurring → Per-unit**, **Metered usage**
+- Price: **$25.00 USD per unit per month** (default; configurable per contract)
+- Aggregation: **Most recent usage record during period**
+- Copy the Price ID → `STRIPE_PRICE_ENTERPRISE`
+
+### Product 5 — "Base Shop HQ White-Label Add-On"
+
+- Pricing model: **Standard pricing**, recurring monthly
+- Price: **$97.00 USD / month**
+- Copy the Price ID → `STRIPE_PRICE_WHITE_LABEL`
+
+### Product 6 — "Additional Vanity Domain" (optional, Prompt 7 territory)
+
+- Pricing model: **Standard pricing**, recurring monthly
+- Price: **$25.00 USD / month**
+- Copy the Price ID for later use (not consumed by Prompt 2 code; Prompt 7's Master Account billing roll-up adds this as a per-domain line item)
 
 ## 3. Configure the Stripe webhook endpoint
 
-After deploying the Edge Functions (Lovable does this automatically when you push), Stripe needs to know where to send events.
-
-1. In Stripe dashboard → Developers → Webhooks → **Add endpoint**
+1. Stripe → Developers → Webhooks → **Add endpoint**
 2. **Endpoint URL:** `https://iqxcjayylqvertwznyze.supabase.co/functions/v1/stripe-webhook`
 3. **Events to send:**
    - `checkout.session.completed`
@@ -47,32 +63,33 @@ After deploying the Edge Functions (Lovable does this automatically when you pus
    - `invoice.payment_failed`
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
-4. Click Add endpoint, then click into it, click **Reveal signing secret**, copy it (starts with `whsec_...`). This is `STRIPE_WEBHOOK_SECRET`.
+4. After creation, click into the endpoint → **Reveal signing secret**, copy it (`whsec_...`) → `STRIPE_WEBHOOK_SECRET`
 
 ## 4. Set the secrets in Supabase
 
-Open the Supabase Dashboard → Project Settings → **Edge Functions** → **Secrets**. Add:
+Project Settings → Edge Functions → Secrets. Add:
 
 | Name | Value |
 |---|---|
-| `STRIPE_SECRET_KEY` | `sk_test_...` from step 1 |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` from step 3 |
-| `STRIPE_PRICE_ACTIVE_AGENTS` | `price_...` from step 2 |
-| `STRIPE_PRICE_SETUP_FEE` | `price_...` from step 2 |
-| `APP_URL` | e.g. `https://app.baseshophq.com` (or your subdomain / Lovable preview URL) |
+| `STRIPE_SECRET_KEY` | `sk_test_...` |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` |
+| `STRIPE_PRICE_STARTER` | `price_...` |
+| `STRIPE_PRICE_GROWTH` | `price_...` |
+| `STRIPE_PRICE_PRO` | `price_...` |
+| `STRIPE_PRICE_ENTERPRISE` | `price_...` |
+| `STRIPE_PRICE_WHITE_LABEL` | `price_...` |
+| `APP_URL` | e.g. `https://app.baseshophq.com` |
 
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are auto-injected by Supabase — don't add them.
+Don't add `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` — those are auto-injected.
 
 ## 5. Schedule the daily snapshot cron
 
-Run this SQL **once** in the Supabase SQL editor (replace the URL with your project's):
+Run this SQL **once** in the Supabase SQL editor:
 
 ```sql
--- Enable pg_net if not already enabled (Supabase enables by default)
 CREATE EXTENSION IF NOT EXISTS pg_net;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
--- Schedule the snapshot at 00:05 UTC daily
 SELECT cron.schedule(
   'stripe-monthly-snapshot',
   '5 0 * * *',
@@ -88,90 +105,114 @@ SELECT cron.schedule(
 );
 ```
 
-The `service_role_key` setting needs to be configured per project. Alternative: use Supabase's built-in **Cron** UI under Project Settings → Cron Jobs to schedule the function call without raw SQL.
+The Edge Function branches by tier internally — flat-tier tenants are skipped, only Enterprise tenants get snapshotted and reported to Stripe.
 
-To verify the schedule:
+Verify:
 
 ```sql
 SELECT jobid, schedule, command FROM cron.job WHERE jobname = 'stripe-monthly-snapshot';
 ```
 
-## 6. Apply the migration
+## 6. Apply the migrations
 
-Paste [the migration file](./migrations/20260505000000_active_agent_billing.sql) contents into the Supabase SQL editor and run.
+Two migrations relevant here:
 
-Verify:
+1. `supabase/migrations/20260505000000_active_agent_billing.sql` — original billing schema (tenants Stripe columns, billing_snapshots extension, RPCs)
+2. `supabase/migrations/20260506000000_tier_billing.sql` — tier columns + agent cap trigger + cap status RPC
+
+Paste both into the SQL editor in order. Verify with:
 
 ```sql
 SELECT
-  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tenants' AND column_name='stripe_customer_id') AS has_customer_id,
-  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tenants' AND column_name='billing_status') AS has_billing_status,
-  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='billing_snapshots' AND column_name='total_amount') AS has_total_amount,
-  EXISTS (SELECT 1 FROM pg_proc WHERE proname='take_billing_snapshot') AS has_snapshot_rpc,
-  EXISTS (SELECT 1 FROM pg_proc WHERE proname='evaluate_billing_state') AS has_evaluate_rpc;
+  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tenants' AND column_name='current_plan_tier') AS has_tier,
+  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tenants' AND column_name='agent_cap') AS has_cap,
+  EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='tenants' AND column_name='white_label_addon_active') AS has_wl,
+  EXISTS (SELECT 1 FROM pg_proc WHERE proname='enforce_agent_cap') AS has_cap_trigger,
+  EXISTS (SELECT 1 FROM pg_proc WHERE proname='tenant_agent_cap_status') AS has_cap_rpc,
+  EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_enforce_agent_cap') AS trigger_attached;
 ```
 
-All five should be `true`.
+All six should be `true`.
 
 ## 7. Manual test plan
 
-Once steps 1–6 are done:
+### Test A — Subscribe each tier
 
-### Test A — Subscribe a new tenant
+For each of Starter, Growth, Pro:
 
-1. Sign up a new tenant (or use a tenant currently in `billing_status='trial'`)
-2. Settings → Billing → click **Subscribe**
-3. Stripe Checkout opens. Use test card `4242 4242 4242 4242`, any future date, any CVC
-4. After checkout completes, you're redirected back to `/settings?tab=billing&checkout=success`
-5. Stripe webhook fires `checkout.session.completed` → tenant row gets `stripe_customer_id`, `stripe_subscription_id`, `billing_status='trial'`, `trial_ends_at` populated
-6. Verify in SQL:
+1. Sign up a fresh tenant
+2. Settings → Billing → tier picker → click **Subscribe** on the tier
+3. Stripe Checkout opens. Use test card `4242 4242 4242 4242`
+4. After completion, redirected to `/settings?tab=billing&checkout=success`
+5. Webhook fires → tenant row gets `current_plan_tier`, `agent_cap`, `stripe_customer_id`, `stripe_subscription_id`, `billing_status='trial'`, `is_in_trial=true`
+6. Verify:
    ```sql
-   SELECT id, stripe_customer_id, stripe_subscription_id, billing_status, trial_ends_at
-   FROM tenants WHERE id = '<your test tenant id>';
+   SELECT id, current_plan_tier, agent_cap, white_label_addon_active, billing_status, trial_ends_at
+   FROM tenants WHERE id = '<tenant id>';
    ```
+   Starter should show `agent_cap=3`. Growth → 10. Pro → 50.
 
-### Test B — Take a snapshot manually
+### Test B — Enterprise (no self-serve)
 
-1. Settings → Billing → **Take Snapshot**
-2. New row appears in Snapshot history with the correct active-agent count and projected total
-3. Verify the count matches `SELECT COUNT(DISTINCT resolved_agent_id) FROM policies WHERE tenant_id = '<id>' AND status != 'Draft' AND created_at >= now() - interval '30 days';`
+The "Subscribe" button on the Enterprise card is disabled with "Contact us" copy. To create an Enterprise tenant for testing, manually update the row:
 
-### Test C — Trigger the cron manually
-
-```bash
-curl -X POST "https://iqxcjayylqvertwznyze.supabase.co/functions/v1/stripe-monthly-snapshot?tenant_id=<your-tenant-id>" \
-  -H "Authorization: Bearer <your-service-role-key>"
+```sql
+UPDATE tenants SET current_plan_tier='enterprise', agent_cap=NULL WHERE id = '<tenant id>';
 ```
 
-Response includes `count` and `reported` per tenant. On the 1st of the month, `reported=true` and a Stripe usage record is posted.
+Then create the Stripe subscription manually in the dashboard with the `STRIPE_PRICE_ENTERPRISE` price.
 
-### Test D — Manage in Stripe portal
+### Test C — White-label toggle
 
-1. Settings → Billing → **Manage in Stripe**
-2. Stripe Customer Portal opens
-3. Update payment method, view invoices, cancel subscription
-4. Cancel → Stripe webhook fires `customer.subscription.deleted` → tenant `billing_status='canceled'`
+1. On a Growth or Pro tenant: Settings → Billing → toggle "White-label add-on"
+2. Stripe immediately invoices the prorated $97 add-on
+3. Webhook fires `customer.subscription.updated` → `tenants.white_label_addon_active=true`
+4. Toggle off: scheduled removal at end of period (no immediate refund)
 
-### Test E — Failed payment lifecycle
+White-label toggle should NOT appear on Starter (verify by checking out as Starter; the eligibility text replaces the toggle).
 
-1. In Stripe dashboard, find an active subscription, change card to `4000 0000 0000 0341` (auto-fails on charge)
-2. Trigger the next invoice (Stripe → Subscriptions → "Charge now")
-3. Webhook fires `invoice.payment_failed` → tenant `billing_status='past_due'`, `payment_failure_count` increments
+### Test D — Agent cap enforcement
+
+1. As a Starter tenant (cap=3), invite 3 agents
+2. Try to invite a 4th: server returns "Agent cap reached for current plan tier (starter, cap=3). Upgrade to add more agents."
+3. The DB-level trigger `enforce_agent_cap` is the source of truth. The InviteAgentModal also pre-checks via `tenant_agent_cap_status` and shows the cap warning before the user even submits.
+4. Upgrade to Growth → cap relaxes to 10 → invite succeeds.
+
+### Test E — Tier upgrade and downgrade
+
+1. Starter → click Upgrade on Pro card → Stripe applies prorated charge immediately
+2. Pro → click Downgrade on Growth card → Stripe schedules the swap at end of period (no immediate change)
+3. Both flows fire `customer.subscription.updated` → webhook reconciles `current_plan_tier` and `agent_cap`
+
+### Test F — Enterprise snapshot + Stripe usage record
+
+1. As an Enterprise tenant, create some non-draft policies
+2. Run the snapshot cron manually:
+   ```bash
+   curl -X POST "https://iqxcjayylqvertwznyze.supabase.co/functions/v1/stripe-monthly-snapshot?tenant_id=<id>" \
+     -H "Authorization: Bearer <service-role-key>"
+   ```
+3. Response: `results[0]` shows `tier="enterprise"`, `count=N`, `skipped=false`. On the 1st of the month, `reported=true`
+4. Verify a `billing_snapshots` row exists with `total_amount` and (on month-rollover) `stripe_usage_record_id`
+
+### Test G — Failed payment lifecycle
+
+1. Change the customer's card in Stripe to `4000 0000 0000 0341` (always declines)
+2. Force an invoice charge in Stripe dashboard
+3. Webhook fires `invoice.payment_failed` → `billing_status='past_due'`, `payment_failure_count` increments
 4. Repeat 3× → `evaluate_billing_state` flips tenant to `soft_disabled`
-5. Verify in Settings → Billing: yellow then red status badge appears
+5. The Billing tab shows red status badge with the soft-disabled banner copy
 
-### Test F — Idempotency
+### Test H — Idempotency
 
-1. Run the snapshot manually twice for the same tenant
-2. Verify only ONE row exists in `billing_snapshots` with the period unique key
-3. The second run UPSERTs; it doesn't create a duplicate row
+1. Run the snapshot manually twice for the same Enterprise tenant
+2. Only one row in `billing_snapshots` (unique on tenant + period)
+3. Stripe usage record only posted once (`stripe_usage_record_id` set on first run; second run sees it set and skips)
 
 ## 8. Going to production
 
-When ready to take real money:
-
-1. Stripe → toggle to **Live mode** (top-right)
-2. Repeat steps 1–4 with live keys (the `pk_live_...` and `sk_live_...` ones)
-3. Update Supabase secrets to the live values
+1. Stripe → Live mode (top-right toggle)
+2. Recreate the 5 products + the white-label add-on with live prices
+3. Update the 5 Supabase secrets with live values
 4. Configure a separate live-mode webhook endpoint with its own signing secret
-5. Test E above on live with a real expired card (small amount, refund yourself)
+5. Run Test G with a small real charge to verify the failure lifecycle works on live mode

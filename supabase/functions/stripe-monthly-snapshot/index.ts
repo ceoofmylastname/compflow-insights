@@ -1,14 +1,14 @@
 // Edge Function: stripe-monthly-snapshot
 //
-// Daily job (scheduled at 00:05 UTC via pg_cron + pg_net). Computes each
-// active tenant's active-agent count for the prior 30 days. On the 1st of
-// each month, also reports the count to Stripe via subscription_items.
-// create_usage_record so the next invoice reflects the correct quantity.
+// Daily job (scheduled at 00:05 UTC). Per-tenant logic:
+//   - starter / growth / pro: skip. Flat tiers don't report usage.
+//   - enterprise:
+//       Daily: snapshot rolling-30-day count (preview, in-app dashboard)
+//       1st of month: snapshot prior calendar month and report usage to
+//         Stripe via subscription_items.createUsageRecord
 //
-// Idempotent: takes (tenant, period_start, period_end) as a unique key.
-// Re-running on the same day overwrites the snapshot but does NOT
-// duplicate the Stripe usage record (we only post once and store the
-// stripe_usage_record_id).
+// Idempotent on (tenant_id, period_start_date, period_end_date) and only
+// posts the Stripe usage record when stripe_usage_record_id is still NULL.
 //
 // Required env / Vault secrets:
 //   - STRIPE_SECRET_KEY
@@ -26,13 +26,7 @@ const corsHeaders = { "Access-Control-Allow-Origin": "*" };
 function periodForToday(): { start: string; end: string; isFirstOfMonth: boolean } {
   const now = new Date();
   const isFirstOfMonth = now.getUTCDate() === 1;
-  // Period = the calendar month that just ENDED (so on the 1st we're billing
-  // the previous month). On other days we still snapshot the current rolling
-  // 30-day window into a "preview" snapshot for the in-app dashboard.
-  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-  const periodStart = new Date(Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth(), 1));
   if (!isFirstOfMonth) {
-    // For mid-month previews, just use a rolling 30-day window
     const rollingEnd = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const rollingStart = new Date(rollingEnd.getTime() - 29 * 24 * 60 * 60 * 1000);
     return {
@@ -41,6 +35,9 @@ function periodForToday(): { start: string; end: string; isFirstOfMonth: boolean
       isFirstOfMonth: false,
     };
   }
+  // 1st of month: snapshot the calendar month that just ended
+  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+  const periodStart = new Date(Date.UTC(periodEnd.getUTCFullYear(), periodEnd.getUTCMonth(), 1));
   return {
     start: periodStart.toISOString().split("T")[0],
     end: periodEnd.toISOString().split("T")[0],
@@ -66,22 +63,42 @@ Deno.serve(async (req: Request) => {
   const { start, end, isFirstOfMonth } = periodForToday();
 
   try {
-    // Allow scoping to a single tenant for ad-hoc / testing runs
     const url = new URL(req.url);
     const tenantParam = url.searchParams.get("tenant_id");
 
     let tenantsQuery = adminClient
       .from("tenants")
-      .select("id, stripe_customer_id, stripe_subscription_id, billing_status");
+      .select(
+        "id, stripe_customer_id, stripe_subscription_id, billing_status, current_plan_tier"
+      );
     if (tenantParam) tenantsQuery = tenantsQuery.eq("id", tenantParam);
 
     const { data: tenants, error } = await tenantsQuery;
     if (error) throw error;
 
-    const results: Array<{ tenant_id: string; count: number; reported: boolean }> = [];
+    const results: Array<{
+      tenant_id: string;
+      tier: string | null;
+      skipped: boolean;
+      count: number;
+      reported: boolean;
+    }> = [];
 
     for (const tenant of tenants ?? []) {
-      // Snapshot via the RPC (idempotent on tenant + period)
+      const tier = (tenant as any).current_plan_tier as string | null;
+
+      // Flat-tier tenants don't get a usage report. Skip cleanly.
+      if (tier !== "enterprise") {
+        results.push({
+          tenant_id: tenant.id,
+          tier,
+          skipped: true,
+          count: 0,
+          reported: false,
+        });
+        continue;
+      }
+
       const { data: snapshot } = await adminClient.rpc("take_billing_snapshot" as any, {
         p_tenant_id: tenant.id,
         p_period_start_date: start,
@@ -99,6 +116,7 @@ Deno.serve(async (req: Request) => {
         | null;
 
       let reported = false;
+
       if (
         isFirstOfMonth &&
         snap &&
@@ -136,6 +154,8 @@ Deno.serve(async (req: Request) => {
 
       results.push({
         tenant_id: tenant.id,
+        tier,
+        skipped: false,
         count: snap?.active_agent_count ?? 0,
         reported,
       });

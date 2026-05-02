@@ -8,9 +8,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { usePositionOptions } from "@/hooks/usePositions";
 import { useAgents } from "@/hooks/useAgents";
+import { useAgentCapStatus } from "@/hooks/useAgentCapStatus";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, AlertTriangle } from "lucide-react";
+import { Link } from "react-router-dom";
 
 interface InviteAgentModalProps {
   open: boolean;
@@ -28,6 +30,7 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
   const { data: currentAgent } = useCurrentAgent();
   const { positionOptions } = usePositionOptions();
   const { data: agents } = useAgents();
+  const { data: capStatus } = useAgentCapStatus();
   const queryClient = useQueryClient();
 
   // Determine inviter role: owner, manager (has downline), or agent
@@ -39,6 +42,12 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
 
   const handleSubmit = async () => {
     if (!email || !currentAgent) return;
+    if (capStatus?.at_cap) {
+      toast.error(
+        `Your ${capStatus.tier ?? "current"} plan caps you at ${capStatus.cap} agents. Upgrade to add more.`
+      );
+      return;
+    }
     setLoading(true);
     try {
       const token = crypto.randomUUID();
@@ -142,6 +151,36 @@ export function InviteAgentModal({ open, onOpenChange }: InviteAgentModalProps) 
           </div>
         ) : (
           <div className="space-y-4">
+            {capStatus && capStatus.cap !== null && (capStatus.near_cap || capStatus.at_cap) && (
+              <div
+                className={
+                  capStatus.at_cap
+                    ? "rounded-lg border border-destructive/30 bg-destructive/10 p-3 flex gap-2 items-start"
+                    : "rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30 p-3 flex gap-2 items-start"
+                }
+              >
+                <AlertTriangle className={capStatus.at_cap ? "h-4 w-4 text-destructive shrink-0 mt-0.5" : "h-4 w-4 text-amber-600 shrink-0 mt-0.5"} />
+                <div className="text-xs">
+                  <p className="font-semibold">
+                    {capStatus.at_cap
+                      ? `Agent cap reached (${capStatus.current}/${capStatus.cap}).`
+                      : `Approaching agent cap (${capStatus.current}/${capStatus.cap}).`}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5">
+                    {capStatus.at_cap
+                      ? "Upgrade your plan to invite more agents."
+                      : `${capStatus.remaining} seat${capStatus.remaining === 1 ? "" : "s"} remaining on the ${capStatus.tier} plan.`}
+                  </p>
+                  <Link
+                    to="/settings?tab=billing"
+                    className="text-primary underline mt-1 inline-block"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Manage plan
+                  </Link>
+                </div>
+              </div>
+            )}
             <div>
               <Label>Email</Label>
               <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="agent@email.com" type="email" />
