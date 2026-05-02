@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { cleanCurrency, normalizeStatus, autoMapFields } from "@/lib/csv-utils";
+import { cleanCurrency, autoMapFields } from "@/lib/csv-utils";
 import { parseISO, isValid, addDays } from "date-fns";
+import {
+  buildStatusMap,
+  resolveStatus,
+  CANONICAL_STATUSES,
+  type CanonicalStatus,
+} from "@/lib/carrier-status-mapping";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -13,6 +19,13 @@ export interface CarrierProfile {
   column_mappings: Record<string, string>;
   custom_fields: CustomField[];
   header_fingerprint: string[] | null;
+  /**
+   * Carrier-specific mapping from raw status values ("Issued",
+   * "Issue Paid", ...) to canonical policies.status enum values.
+   * Lookup is case-insensitive and whitespace-trimmed via
+   * normalizeKey from @/lib/carrier-status-mapping.
+   */
+  status_value_map?: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }
@@ -274,9 +287,22 @@ export async function resolveAgent(
 /*  Row Validation                                                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Sentinel prefix for the "unknown carrier status" warning. The Validate
+ * step grep-matches this prefix to drive the inline picker, so the wizard
+ * UX and the validator stay coupled through a single string. Any change
+ * here also requires updating PolicyImportWizard.
+ */
+export const UNMAPPED_STATUS_WARNING_PREFIX = "Unmapped status:";
+
 export function validateImportRow(
   mapped: Record<string, string>,
-  rowIndex: number
+  /**
+   * Effective map (defaults + per-carrier overrides + session overrides).
+   * Built once per validation pass via buildStatusMap. When omitted, only
+   * the platform defaults are used.
+   */
+  statusMap?: Record<string, CanonicalStatus>
 ): { errors: string[]; warnings: string[] } {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -319,9 +345,10 @@ export function validateImportRow(
   }
 
   if (mapped.status) {
-    const normalized = normalizeStatus(mapped.status);
-    if (!["Active", "Submitted", "Pending", "Terminated"].includes(normalized)) {
-      warnings.push(`Unknown status: "${mapped.status}"`);
+    const effectiveMap = statusMap ?? buildStatusMap(null);
+    const canonical = resolveStatus(mapped.status, effectiveMap);
+    if (!canonical || !CANONICAL_STATUSES.includes(canonical)) {
+      warnings.push(`${UNMAPPED_STATUS_WARNING_PREFIX} "${mapped.status.trim()}"`);
     }
   }
 
@@ -334,6 +361,11 @@ export function validateImportRow(
 
 /**
  * Process all CSV rows: map columns, validate, resolve agents.
+ *
+ * `statusMap` is the effective per-import status lookup (built via
+ * buildStatusMap from platform defaults + carrier_profiles.status_value_map
+ * + any in-session overrides from the inline picker). Pass null for
+ * defaults-only.
  */
 export async function buildImportRows(
   headers: string[],
@@ -341,7 +373,8 @@ export async function buildImportRows(
   mappings: Record<string, string>,
   customFields: CustomField[],
   tenantId: string,
-  supabaseClient: SupabaseClient
+  supabaseClient: SupabaseClient,
+  statusMap?: Record<string, CanonicalStatus>
 ): Promise<ImportRow[]> {
   const importRows: ImportRow[] = [];
 
@@ -369,7 +402,7 @@ export async function buildImportRows(
       mapped.carrier = normalizeCarrierName(mapped.carrier, carrierNameMap);
     }
 
-    const { errors, warnings } = validateImportRow(mapped, i);
+    const { errors, warnings } = validateImportRow(mapped, statusMap);
 
     // Resolve agent
     let resolvedAgentId: string | null = null;

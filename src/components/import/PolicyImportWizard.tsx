@@ -49,12 +49,21 @@ import {
   autoMapColumns,
   resolveAgent,
   validateImportRow,
+  UNMAPPED_STATUS_WARNING_PREFIX,
   SYSTEM_FIELDS,
   type CarrierProfile,
   type CustomField,
   type ImportRow,
 } from "@/lib/carrier-import-engine";
-import { cleanCurrency, normalizeStatus, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
+import {
+  buildStatusMap,
+  resolveStatus,
+  normalizeKey as normalizeStatusKey,
+  CANONICAL_STATUSES,
+  CANONICAL_STATUS_HINTS,
+  type CanonicalStatus,
+} from "@/lib/carrier-status-mapping";
+import { cleanCurrency, downloadCSV, rowsToCSV } from "@/lib/csv-utils";
 import { calculateAndSavePayouts } from "@/lib/commission-engine";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { useAgents } from "@/hooks/useAgents";
@@ -168,6 +177,20 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
 
   /* Step 4: Validation */
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  /**
+   * In-session inline-picker overrides keyed by normalizeStatusKey(rawValue).
+   * Layered on top of the matched carrier profile's status_value_map when
+   * computing the effective status map for this import.
+   */
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, CanonicalStatus>>({});
+  /**
+   * Set of normalizeStatusKey(rawValue) the owner has chosen to skip rather
+   * than map. Rows whose status falls into this set move from the warnings
+   * bucket into the "will be skipped" bucket and are not imported.
+   */
+  const [skippedStatuses, setSkippedStatuses] = useState<Set<string>>(new Set());
+  /** Whether the inline picker should write the mapping back to the carrier profile. */
+  const [pickerSaveDefault, setPickerSaveDefault] = useState(true);
 
   /* Step 4b: Import mode */
   const [importMode, setImportMode] = useState<"replace" | "additive">("replace");
@@ -199,18 +222,82 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
     setImportResult(null);
   }, []);
 
+  /**
+   * Effective per-import status map. Layers (last write wins):
+   *   1. Platform defaults (seeds/carrier-status-mappings.json)
+   *   2. Per-carrier overrides from carrier_profiles.status_value_map
+   *   3. In-session overrides from the inline picker
+   * Computed once per render and reused for both validation recompute
+   * and the actual import write.
+   */
+  const effectiveStatusMap = useMemo(() => {
+    const profileMap = (detectedProfile?.status_value_map ?? null) as Record<string, string> | null;
+    return buildStatusMap(profileMap, statusOverrides);
+  }, [detectedProfile?.status_value_map, statusOverrides]);
+
+  /**
+   * Re-validate status on the fly so picker resolutions update warning
+   * counts in real time without rebuilding the whole import (which would
+   * re-run agent resolution and Supabase queries).
+   */
+  const effectiveImportRows = useMemo<ImportRow[]>(() => {
+    return importRows.map((r) => {
+      const rawStatus = r.mapped.status?.trim() ?? "";
+      // Strip any prior unmapped-status warning; we recompute below.
+      const filteredWarnings = r.warnings.filter((w) => !w.startsWith(UNMAPPED_STATUS_WARNING_PREFIX));
+      const errors = [...r.errors];
+      const warnings = [...filteredWarnings];
+
+      if (rawStatus) {
+        const key = normalizeStatusKey(rawStatus);
+        if (skippedStatuses.has(key)) {
+          errors.push(`Skipped: status "${rawStatus}" is unmapped`);
+        } else {
+          const canonical = resolveStatus(rawStatus, effectiveStatusMap);
+          if (!canonical) {
+            warnings.push(`${UNMAPPED_STATUS_WARNING_PREFIX} "${rawStatus}"`);
+          }
+        }
+      }
+
+      return { ...r, errors, warnings };
+    });
+  }, [importRows, effectiveStatusMap, skippedStatuses]);
+
   const validRows = useMemo(
-    () => importRows.filter((r) => r.errors.length === 0),
-    [importRows]
+    () => effectiveImportRows.filter((r) => r.errors.length === 0),
+    [effectiveImportRows]
   );
   const warningRows = useMemo(
-    () => importRows.filter((r) => r.errors.length === 0 && r.warnings.length > 0),
-    [importRows]
+    () => effectiveImportRows.filter((r) => r.errors.length === 0 && r.warnings.length > 0),
+    [effectiveImportRows]
   );
   const errorRows = useMemo(
-    () => importRows.filter((r) => r.errors.length > 0),
-    [importRows]
+    () => effectiveImportRows.filter((r) => r.errors.length > 0),
+    [effectiveImportRows]
   );
+
+  /**
+   * Unique unmapped status raw values across all rows. Drives the inline
+   * picker UI in step 3. Each entry is the raw value as it appears in
+   * the CSV (preserving capitalization for display); the lookup key is
+   * normalizeStatusKey(rawValue).
+   */
+  const unmappedStatusValues = useMemo<string[]>(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const r of effectiveImportRows) {
+      const rawStatus = r.mapped.status?.trim();
+      if (!rawStatus) continue;
+      const key = normalizeStatusKey(rawStatus);
+      if (skippedStatuses.has(key)) continue;
+      if (resolveStatus(rawStatus, effectiveStatusMap)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(rawStatus);
+    }
+    return out;
+  }, [effectiveImportRows, effectiveStatusMap, skippedStatuses]);
 
   /* ---------- Step 1: File handling ---------- */
   const handleFileSelect = useCallback(
@@ -444,7 +531,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         mapped.carrier = carrierName;
       }
 
-      const { errors, warnings } = validateImportRow(mapped, i);
+      const { errors, warnings } = validateImportRow(mapped, effectiveStatusMap);
 
       // Resolve agent from our pre-built map; surface conflict warnings.
       const wai = mapped.writing_agent_id?.trim();
@@ -473,7 +560,61 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
 
     setImportRows(built);
     setStep(3);
-  }, [rows, headers, columnMappings, customFields, autoCustomFields, carrierName, agentResolutions]);
+  }, [rows, headers, columnMappings, customFields, autoCustomFields, carrierName, agentResolutions, effectiveStatusMap]);
+
+  /* ---------- Step 4: Inline status picker handlers ---------- */
+
+  /**
+   * Apply an inline picker selection. Adds the override locally so the
+   * row counts recompute immediately, and (if save is checked) persists
+   * the mapping to the carrier profile via the
+   * update_carrier_status_mapping RPC. The same raw value is implicitly
+   * resolved across every row of the current import because everything
+   * downstream reads from effectiveStatusMap.
+   */
+  const applyStatusMapping = useCallback(
+    async (rawValue: string, canonical: CanonicalStatus, save: boolean) => {
+      const key = normalizeStatusKey(rawValue);
+      setStatusOverrides((prev) => ({ ...prev, [key]: canonical }));
+      // If user toggled the row from skipped back to mapped, drop the skip flag.
+      setSkippedStatuses((prev) => {
+        if (!prev.has(key)) return prev;
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+
+      if (save && carrierName) {
+        const { error } = await supabase.rpc("update_carrier_status_mapping" as any, {
+          p_carrier_name: carrierName,
+          p_raw_value: rawValue.trim(),
+          p_canonical_value: canonical,
+        });
+        if (error) {
+          toast.error(`Saved for this import only. Could not save to carrier profile: ${error.message}`);
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["carrierProfiles"] });
+        }
+      }
+    },
+    [carrierName, queryClient]
+  );
+
+  /** Mark all rows with the given raw status as skip-on-import. */
+  const skipStatusValue = useCallback((rawValue: string) => {
+    const key = normalizeStatusKey(rawValue);
+    setSkippedStatuses((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    setStatusOverrides((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   /* ---------- Step 4: Download skip report ---------- */
   const downloadSkipReport = useCallback(() => {
@@ -527,7 +668,10 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
           continue;
         }
 
-        const status = m.status ? normalizeStatus(m.status) : "Submitted";
+        // Resolve via the effective per-import map so picker overrides
+        // and per-carrier status_value_map both apply at write time.
+        const resolved = m.status ? resolveStatus(m.status, effectiveStatusMap) : null;
+        const status: string = resolved ?? "Submitted";
         const rawPremium = m.annual_premium ? cleanCurrency(m.annual_premium) : 0;
         const rawRefsCollected = m.refs_collected ? parseInt(m.refs_collected, 10) : 0;
         const rawRefsSold = m.refs_sold ? parseInt(m.refs_sold, 10) : 0;
@@ -758,7 +902,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
     setImporting(false);
     setStep(4);
     onImportComplete?.(result);
-  }, [currentAgent, validRows, agentResolutions, agents, queryClient, importMode, onImportComplete]);
+  }, [currentAgent, validRows, agentResolutions, agents, queryClient, importMode, onImportComplete, effectiveStatusMap]);
 
   /* ---------- Save carrier profile ---------- */
   const handleSaveProfile = useCallback(() => {
@@ -1268,6 +1412,49 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
               )}
             </div>
 
+            {/* Inline status picker — shown only when there are unmapped carrier statuses */}
+            {unmappedStatusValues.length > 0 && (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-500/30 p-4 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {unmappedStatusValues.length} carrier status{unmappedStatusValues.length === 1 ? "" : "es"} need mapping
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Match each carrier value to one of the six canonical statuses. Saving the mapping teaches the system for next time.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="picker-save-default"
+                    checked={pickerSaveDefault}
+                    onCheckedChange={(v) => setPickerSaveDefault(v === true)}
+                  />
+                  <Label htmlFor="picker-save-default" className="text-xs cursor-pointer">
+                    Save these mappings for all future {carrierName || "carrier"} imports
+                  </Label>
+                </div>
+
+                <div className="space-y-2">
+                  {unmappedStatusValues.map((rawValue) => (
+                    <StatusPickerRow
+                      key={normalizeStatusKey(rawValue)}
+                      rawValue={rawValue}
+                      onApply={(canonical) => applyStatusMapping(rawValue, canonical, pickerSaveDefault)}
+                      onSkip={() => skipStatusValue(rawValue)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* When everything is resolved or skipped, show a brief confirmation banner. */}
+            {unmappedStatusValues.length === 0 && skippedStatuses.size > 0 && (
+              <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                {skippedStatuses.size} status value{skippedStatuses.size === 1 ? "" : "s"} skipped. Rows with those statuses will not be imported.
+              </div>
+            )}
+
             {/* Row preview */}
             <div className="rounded-md border border-border max-h-[45vh] overflow-y-auto">
               <Table>
@@ -1283,7 +1470,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {importRows.slice(0, 100).map((r) => {
+                  {effectiveImportRows.slice(0, 100).map((r) => {
                     const hasErrors = r.errors.length > 0;
                     const hasWarnings = r.warnings.length > 0;
                     return (
@@ -1320,9 +1507,9 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                 </TableBody>
               </Table>
             </div>
-            {importRows.length > 100 && (
+            {effectiveImportRows.length > 100 && (
               <p className="text-xs text-muted-foreground">
-                Showing first 100 of {importRows.length} rows
+                Showing first 100 of {effectiveImportRows.length} rows
               </p>
             )}
 
@@ -1347,7 +1534,10 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
               <Button variant="outline" onClick={() => setStep(2)}>
                 <ArrowLeft className="mr-1 h-4 w-4" /> Back
               </Button>
-              <Button onClick={executeImport} disabled={validRows.length === 0}>
+              <Button
+                onClick={executeImport}
+                disabled={validRows.length === 0 || unmappedStatusValues.length > 0}
+              >
                 Confirm Import ({validRows.length} rows)
                 <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
@@ -1434,5 +1624,70 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  StatusPickerRow                                                    */
+/*                                                                     */
+/*  One row of the inline status-mapping picker. Renders the raw       */
+/*  carrier value, a dropdown of the six canonical statuses with a     */
+/*  short hint per option, and Apply / Skip actions. Stateless w.r.t   */
+/*  storage — the parent owns statusOverrides and the carrier-profile  */
+/*  RPC call.                                                          */
+/* ------------------------------------------------------------------ */
+
+function StatusPickerRow({
+  rawValue,
+  onApply,
+  onSkip,
+}: {
+  rawValue: string;
+  onApply: (canonical: CanonicalStatus) => void;
+  onSkip: () => void;
+}) {
+  const [pick, setPick] = useState<CanonicalStatus | "">("");
+
+  return (
+    <div className="rounded-md border border-yellow-300 dark:border-yellow-500/30 bg-card p-3 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex items-center gap-2 sm:min-w-[180px]">
+        <AlertTriangle className="h-4 w-4 text-yellow-600 shrink-0" />
+        <div className="text-sm">
+          <p className="font-medium text-foreground break-all">"{rawValue}"</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Raw carrier value</p>
+        </div>
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <Select value={pick} onValueChange={(v) => setPick(v as CanonicalStatus)}>
+          <SelectTrigger className="h-9 text-sm">
+            <SelectValue placeholder="Map to canonical status..." />
+          </SelectTrigger>
+          <SelectContent>
+            {CANONICAL_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                <span className="font-medium">{s}</span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {CANONICAL_STATUS_HINTS[s]}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex gap-2 shrink-0">
+        <Button
+          size="sm"
+          onClick={() => pick && onApply(pick)}
+          disabled={!pick}
+        >
+          Apply
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onSkip} title="Skip rows with this status">
+          Skip
+        </Button>
+      </div>
+    </div>
   );
 }

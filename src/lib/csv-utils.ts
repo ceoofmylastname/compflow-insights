@@ -1,3 +1,5 @@
+import { resolveStatusWithDefaults } from "@/lib/carrier-status-mapping";
+
 export function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length === 0) return { headers: [], rows: [] };
@@ -72,15 +74,20 @@ export function cleanCurrency(val: string): number {
   return parseFloat(val.replace(/[$,\s]/g, "")) || 0;
 }
 
+/**
+ * Resolve a raw carrier status to one of the canonical
+ * policies.status enum values. Returns the raw trimmed value if no
+ * mapping is found so callers can decide whether to flag a warning.
+ *
+ * For full carrier-aware resolution use resolveStatus from
+ * @/lib/carrier-status-mapping which layers per-carrier overrides on
+ * top of the platform defaults. This function is kept as a thin
+ * pass-through for the legacy CSV modal that does not have a carrier
+ * profile context.
+ */
 export function normalizeStatus(val: string): string {
-  const lower = val.trim().toLowerCase();
-  const map: Record<string, string> = {
-    active: "Active",
-    submitted: "Submitted",
-    pending: "Pending",
-    terminated: "Terminated",
-  };
-  return map[lower] || val.trim();
+  const canonical = resolveStatusWithDefaults(val);
+  return canonical ?? val.trim();
 }
 
 const TEMPLATES: Record<string, { filename: string; headers: string[] }> = {
