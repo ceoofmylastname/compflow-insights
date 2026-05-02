@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { recalculateAllPayouts } from "@/lib/commission-engine";
 import { useTenant, useUpdateTenant } from "@/hooks/useTenant";
 import { useCarriers } from "@/hooks/useCarriers";
+import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { useAgentContracts } from "@/hooks/useAgentContracts";
 import type { AgentContract } from "@/hooks/useAgentContracts";
 
@@ -454,6 +455,10 @@ function WebhooksSection() {
 function CarrierAliasesSection({ tenantId }: { tenantId?: string }) {
   const { data: agents } = useAgents();
   const queryClient = useQueryClient();
+  // Carrier roster inheritance: carrier picker is bound to the tenant
+  // roster. No free-text fallback so an alias never points at a
+  // misaligned carrier name string.
+  const { carriers: tenantCarriers } = useCarrierOptions();
 
   const { data: aliases, isLoading } = useQuery({
     queryKey: ["carrierAliases"],
@@ -509,7 +514,19 @@ function CarrierAliasesSection({ tenantId }: { tenantId?: string }) {
         <CardContent className="space-y-4">
           <div>
             <Label>Carrier</Label>
-            <Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="e.g. Mutual of Omaha" />
+            {tenantCarriers.length === 0 ? (
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                No carriers configured. Ask the owner to add carriers on{" "}
+                <a href="/carriers" className="underline font-medium">Carriers and Comp Sheets</a>.
+              </div>
+            ) : (
+              <Select value={carrier} onValueChange={setCarrier}>
+                <SelectTrigger><SelectValue placeholder="Select carrier" /></SelectTrigger>
+                <SelectContent>
+                  {tenantCarriers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div>
             <Label>Writing Agent ID (from carrier)</Label>

@@ -496,11 +496,14 @@ export function PostDealModal({ open, onOpenChange, editingPolicy }: PostDealMod
                 </SelectContent>
               </Select>
             ) : (
-              <Input
-                value={carrier}
-                onChange={(e) => setCarrier(e.target.value)}
-                placeholder="Enter carrier name"
-              />
+              // Hard block per the carrier roster inheritance fix. No
+              // free-text fallback — that masked the underlying empty
+              // tenant roster and let agents type misaligned strings
+              // that disconnected them from the owner's carrier list.
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                No carriers configured. Ask the owner to add carriers on{" "}
+                <a href="/carriers" className="underline font-medium">Carriers and Comp Sheets</a>.
+              </div>
             )}
             {errors.carrier && (
               <p className="text-xs text-destructive mt-1">{errors.carrier}</p>
@@ -702,7 +705,7 @@ export function PostDealModal({ open, onOpenChange, editingPolicy }: PostDealMod
           <Button
             className="w-full"
             onClick={handleSave}
-            disabled={submitting}
+            disabled={submitting || (!isDraft && carriers.length === 0)}
           >
             {submitting
               ? "Saving..."

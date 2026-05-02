@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentAgent } from "@/hooks/useCurrentAgent";
@@ -29,7 +30,9 @@ export interface Carrier {
 
 export function useCarriers() {
   const { data: currentAgent } = useCurrentAgent();
-  return useQuery({
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
     queryKey: ["carriers", currentAgent?.tenant_id],
     queryFn: async (): Promise<Carrier[]> => {
       if (!currentAgent) return [];
@@ -44,6 +47,38 @@ export function useCarriers() {
     enabled: !!currentAgent,
     staleTime: 2 * 60 * 1000,
   });
+
+  // Realtime subscription on the carriers table per
+  // Wiki/realtime-updates-and-hierarchy-cascade.md. Owner inserts,
+  // updates (status flips, name edits), or deletes a carrier and every
+  // active agent session in the tenant sees the change inside ~1s
+  // without a page refresh — the channel filter is server-side
+  // (tenant_id eq) so cross-tenant traffic never reaches the client.
+  //
+  // The subscription is intentionally narrow: it just invalidates the
+  // carriers query. TanStack refetches, every dropdown re-derives from
+  // the same source of truth, and useCarrierOptions consumers update.
+  // Carrier-products mutations also reach the carriers query via the
+  // refetch (since the select pulls carrier_products in the same call).
+  useEffect(() => {
+    const tenantId = currentAgent?.tenant_id;
+    if (!tenantId) return;
+    const channel = supabase
+      .channel(`carriers:tenant=${tenantId}`)
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "carriers", filter: `tenant_id=eq.${tenantId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["carriers", tenantId] });
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentAgent?.tenant_id, queryClient]);
+
+  return query;
 }
 
 export function useCreateCarrier() {

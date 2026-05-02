@@ -21,6 +21,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, UserPlus, Copy, Plus, Trash2, Archive, Download } from "lucide-react";
 import { usePositionOptions } from "@/hooks/usePositions";
+import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { downloadTemplate } from "@/lib/csv-utils";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
 import { supabase } from "@/integrations/supabase/client";
@@ -603,6 +604,10 @@ function AgentContractsTab({ agentId, isOwner }: { agentId: string; isOwner: boo
   const { data: contracts, isLoading } = useAgentContracts(agentId);
   const createContract = useCreateAgentContract();
   const deleteContract = useDeleteAgentContract();
+  // Carrier roster inheritance: dropdown is bound to the tenant-wide
+  // useCarrierOptions list. No free-text fallback — when the list is
+  // empty, the form hard-blocks with a CTA to the Carriers page.
+  const { carriers: tenantCarriers } = useCarrierOptions();
 
   const [adding, setAdding] = useState(false);
   const [carrier, setCarrier] = useState("");
@@ -646,7 +651,22 @@ function AgentContractsTab({ agentId, isOwner }: { agentId: string; isOwner: boo
 
       {adding && (
         <div className="space-y-2 rounded-lg border border-border p-3">
-          <div><Label className="text-xs">Carrier</Label><Input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="e.g. Mutual of Omaha" className="h-8 text-sm" /></div>
+          <div>
+            <Label className="text-xs">Carrier</Label>
+            {tenantCarriers.length === 0 ? (
+              <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30 px-2 py-2 text-xs text-amber-900 dark:text-amber-200">
+                No carriers configured. Ask the owner to add carriers on{" "}
+                <a href="/carriers" className="underline font-medium">Carriers and Comp Sheets</a>.
+              </div>
+            ) : (
+              <Select value={carrier} onValueChange={setCarrier}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select carrier" /></SelectTrigger>
+                <SelectContent>
+                  {tenantCarriers.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
           <div><Label className="text-xs">Agent Number</Label><Input value={agentNumber} onChange={(e) => setAgentNumber(e.target.value)} placeholder="Optional" className="h-8 text-sm" /></div>
           <div className="grid grid-cols-2 gap-2">
             <div>

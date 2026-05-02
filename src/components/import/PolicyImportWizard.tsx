@@ -1044,24 +1044,32 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
               <div className="space-y-2">
                 <div>
                   <Label>Carrier Name</Label>
-                  <Input
-                    value={carrierName}
-                    onChange={(e) => setCarrierName(e.target.value)}
-                    placeholder="e.g. Mutual of Omaha"
-                    list="import-carrier-options"
-                  />
-                  <datalist id="import-carrier-options">
-                    {carrierOptions.map((c) => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
+                  {carrierOptions.length === 0 ? (
+                    // Hard block per the carrier roster inheritance fix.
+                    // Free-text was letting imports set carrier strings
+                    // that did not match any tenant carrier and silently
+                    // disconnected the imported policies from the roster.
+                    <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+                      No carriers configured. Ask the owner to add carriers on{" "}
+                      <a href="/carriers" className="underline font-medium">Carriers and Comp Sheets</a>.
+                    </div>
+                  ) : (
+                    <Select value={carrierName} onValueChange={setCarrierName}>
+                      <SelectTrigger><SelectValue placeholder="Select carrier" /></SelectTrigger>
+                      <SelectContent>
+                        {carrierOptions.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               </div>
             )}
 
             <div className="flex justify-end">
               <Button
-                disabled={!fileName || rows.length === 0}
+                disabled={!fileName || rows.length === 0 || carrierOptions.length === 0 || !carrierName}
                 onClick={() => setStep(1)}
               >
                 Next <ArrowRight className="ml-1 h-4 w-4" />
