@@ -16,13 +16,16 @@ import { Download } from "lucide-react";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 
-const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
+const STATUSES = ["Submitted", "Pending", "Issued", "Issue Paid", "Potential Lapse", "Terminated"];
 
 const Scoreboard = () => {
   const { dateFrom, dateTo } = useFilters();
   const [carrier, setCarrier] = useState("");
   const [status, setStatus] = useState("");
-  const [rankMode, setRankMode] = useState<"All" | "Submitted" | "Active">("All");
+  // Per Wiki/scoreboard-page.md, contests split into "Top Producers"
+  // (Booked + Realized) and "Top Earners" (Realized only). The Submitted
+  // tab keeps the existing pipeline-only ranking.
+  const [rankMode, setRankMode] = useState<"All" | "Submitted" | "Producers" | "Earners">("All");
   const [leadSource, setLeadSource] = useState("");
 
   const { data: currentAgent } = useCurrentAgent();
@@ -87,11 +90,12 @@ const Scoreboard = () => {
           </Button>
         </div>
         <div className="flex items-center justify-between">
-          <Tabs value={rankMode} onValueChange={(v: any) => setRankMode(v)} className="w-[400px]">
-            <TabsList className="grid w-full grid-cols-3 h-9">
-              <TabsTrigger value="All" className="text-xs">Rank by All</TabsTrigger>
-              <TabsTrigger value="Submitted" className="text-xs">Rank by Submitted</TabsTrigger>
-              <TabsTrigger value="Active" className="text-xs">Rank by Active</TabsTrigger>
+          <Tabs value={rankMode} onValueChange={(v: any) => setRankMode(v)} className="w-[520px] max-w-full">
+            <TabsList className="grid w-full grid-cols-4 h-9">
+              <TabsTrigger value="All" className="text-xs">All</TabsTrigger>
+              <TabsTrigger value="Submitted" className="text-xs">Submitted</TabsTrigger>
+              <TabsTrigger value="Producers" className="text-xs">Top Producers</TabsTrigger>
+              <TabsTrigger value="Earners" className="text-xs">Top Earners</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>

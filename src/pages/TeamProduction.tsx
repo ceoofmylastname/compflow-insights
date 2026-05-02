@@ -16,7 +16,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 
-const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
+const STATUSES = ["Submitted", "Pending", "Issued", "Issue Paid", "Potential Lapse", "Terminated"];
 const PAGE_SIZE = 50;
 
 const TeamProduction = () => {

@@ -444,22 +444,35 @@ export function CSVImportModal({ open, onOpenChange, defaultTab }: CSVImportModa
 
             const agent = agents?.find((a) => a.id === resolvedAgentId);
 
-            if (status === "Active" && previousStatus !== "Active" && webhooks.length > 0) {
-              const webhookPayload = {
-                event: "deal.posted",
-                policy_number: r.policy_number || "",
-                client_name: r.client_name || "",
-                carrier: r.carrier || "",
-                product: r.product || "",
-                annual_premium: premium,
-                agent_email: agent?.email || "",
-                application_date: r.application_date || "",
-                status,
-              };
+            // Webhook fire on transition into Booked or Realized buckets
+            // (canonical seven-status model). 'Active' is the deprecated
+            // alias retained during the migration window.
+            // TODO: drop 'Active' branches after Active enum drop.
+            const wasIssued = previousStatus === "Issued" || previousStatus === "Active";
+            const becameIssued = (status === "Issued" || status === "Active") && !wasIssued;
+            const becameIssuePaid = status === "Issue Paid" && previousStatus !== "Issue Paid";
+            if ((becameIssued || becameIssuePaid) && webhooks.length > 0) {
+              const eventName = becameIssuePaid ? "policy.issue_paid" : "policy.issued";
               for (const config of webhooks) {
+                const isLegacy = (config as { event_type?: string }).event_type === "deal.posted";
+                // Skip legacy deal.posted webhooks for the Issue Paid event.
+                if (isLegacy && becameIssuePaid) continue;
                 try {
                   await supabase.functions.invoke("fire-webhook", {
-                    body: { webhook_url: config.webhook_url, payload: webhookPayload },
+                    body: {
+                      webhook_url: config.webhook_url,
+                      payload: {
+                        event: isLegacy ? "deal.posted" : eventName,
+                        policy_number: r.policy_number || "",
+                        client_name: r.client_name || "",
+                        carrier: r.carrier || "",
+                        product: r.product || "",
+                        annual_premium: premium,
+                        agent_email: agent?.email || "",
+                        application_date: r.application_date || "",
+                        status,
+                      },
+                    },
                   });
                 } catch {}
               }

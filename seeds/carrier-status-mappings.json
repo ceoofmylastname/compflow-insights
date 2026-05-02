@@ -1,17 +1,23 @@
 {
   "_meta": {
-    "description": "Default carrier-status -> canonical Base Shop HQ status mapping. Keys are raw values from carrier statements (case-insensitive, whitespace-trimmed); values are one of the canonical policies.status enum: Draft, Submitted, Pending, Active, Terminated, Potential Lapse. Per-carrier overrides live in carrier_profiles.status_value_map.",
-    "canonical_statuses": ["Draft", "Submitted", "Pending", "Active", "Terminated", "Potential Lapse"],
-    "matching": "case-insensitive, trimmed"
+    "description": "Default carrier-status -> canonical Base Shop HQ status mapping. Keys are raw values from carrier statements (case-insensitive, whitespace-trimmed); values are one of the canonical policies.status enum: Draft, Submitted, Pending, Issued, Issue Paid, Terminated, Potential Lapse. Per-carrier overrides live in carrier_profiles.status_value_map.",
+    "canonical_statuses": ["Draft", "Submitted", "Pending", "Issued", "Issue Paid", "Terminated", "Potential Lapse"],
+    "matching": "case-insensitive, trimmed",
+    "notes": [
+      "Issued = carrier approved the policy; agent has not been paid yet.",
+      "Issue Paid = agent has been paid the commission for this policy.",
+      "Inforce / In Force / Active are legacy or carrier-state values; treat as Issued (approved-but-payment-status-unknown) until a paid commission row promotes the policy to Issue Paid."
+    ]
   },
   "mappings": {
-    "Issued": "Active",
-    "Issue Paid": "Active",
-    "Issued Paid": "Active",
-    "First Year Paid": "Active",
-    "Inforce": "Active",
-    "In Force": "Active",
-    "Active": "Active",
+    "Issued": "Issued",
+    "Issue Paid": "Issue Paid",
+    "Issued Paid": "Issue Paid",
+    "First Year Paid": "Issue Paid",
+    "Paid": "Issue Paid",
+    "Inforce": "Issued",
+    "In Force": "Issued",
+    "Active": "Issued",
     "Submitted": "Submitted",
     "App Submitted": "Submitted",
     "Application Submitted": "Submitted",

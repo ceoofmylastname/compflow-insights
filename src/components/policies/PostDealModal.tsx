@@ -37,7 +37,15 @@ interface PostDealModalProps {
   editingPolicy?: Policy | null;
 }
 
-const STATUSES = ["Draft", "Submitted", "Pending", "Active", "Terminated"] as const;
+const STATUSES = [
+  "Draft",
+  "Submitted",
+  "Pending",
+  "Issued",
+  "Issue Paid",
+  "Potential Lapse",
+  "Terminated",
+] as const;
 type PolicyStatus = (typeof STATUSES)[number];
 const CONTRACT_TYPES = ["Direct Pay", "LOA"];
 const LEAD_SOURCES = ["Provided", "Purchased", "Referral", "Self-Generated", "Other"];
@@ -259,15 +267,26 @@ export function PostDealModal({ open, onOpenChange, editingPolicy }: PostDealMod
           await calculateAndSavePayouts(savedPolicy.id, supabase);
         } catch {}
 
-        if (status === "Active") {
+        // Webhook fire on creation in a Booked or Realized state per
+        // Wiki/webhooks-and-culture-tools.md.
+        //   policy.issued     fires when the new policy is created in Issued.
+        //   policy.issue_paid fires when the new policy is created in Issue Paid.
+        // The legacy deal.posted event keeps firing on Issued for back-compat.
+        const isIssued = (status as string) === "Issued";
+        const isIssuePaid = (status as string) === "Issue Paid";
+        if (isIssued || isIssuePaid) {
+          const eventName = isIssuePaid ? "policy.issue_paid" : "policy.issued";
+          const eventTypes: any[] = isIssuePaid
+            ? [eventName]
+            : [eventName, "deal.posted"];
           const { data: activeWebhooks } = await supabase
             .from("webhook_configs")
-            .select("*")
+            .select("webhook_url, event_type")
             .eq("tenant_id", currentAgent.tenant_id)
             .eq("is_active", true)
-            .eq("event_type", "deal.posted" as any);
+            .in("event_type", eventTypes);
 
-          const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string }>;
+          const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string; event_type: string }>;
           const agent = agents?.find((a) => a.id === resolvedAgentId);
 
           for (const config of webhooks) {
@@ -276,7 +295,7 @@ export function PostDealModal({ open, onOpenChange, editingPolicy }: PostDealMod
                 body: {
                   webhook_url: config.webhook_url,
                   payload: {
-                    event: "deal.posted",
+                    event: config.event_type === "deal.posted" ? "deal.posted" : eventName,
                     policy_number: policyNumber.trim(),
                     client_name: clientName.trim(),
                     carrier: carrier.trim(),

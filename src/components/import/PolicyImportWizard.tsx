@@ -834,16 +834,29 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
             result.payoutsCalculated++;
           } catch {}
 
-          // Fire webhooks if transitioning to Active
-          if (status === "Active" && previousStatus !== "Active") {
+          // Webhook fire on transition into Booked or Realized buckets.
+          // policy.issued     fires when status moves into Issued (or
+          //                   the deprecated Active alias) from anything else.
+          // policy.issue_paid fires when status moves into Issue Paid.
+          // The legacy deal.posted event keeps firing on Issued for
+          // back-compat with existing tenant subscriptions.
+          // TODO: drop 'Active' branch after Active enum drop.
+          const wasIssued = previousStatus === "Issued" || previousStatus === "Active";
+          const becameIssued = (status === "Issued" || status === "Active") && !wasIssued;
+          const becameIssuePaid = status === "Issue Paid" && previousStatus !== "Issue Paid";
+          if (becameIssued || becameIssuePaid) {
+            const eventName = becameIssuePaid ? "policy.issue_paid" : "policy.issued";
+            const eventTypes: any[] = becameIssuePaid
+              ? [eventName]
+              : [eventName, "deal.posted"];
             const { data: activeWebhooks } = await supabase
               .from("webhook_configs")
-              .select("*")
+              .select("webhook_url, event_type")
               .eq("tenant_id", currentAgent.tenant_id)
               .eq("is_active", true)
-              .eq("event_type", "deal.posted" as any);
+              .in("event_type", eventTypes);
 
-            const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string }>;
+            const webhooks = (activeWebhooks ?? []) as Array<{ webhook_url: string; event_type: string }>;
             const agent = agents?.find((a) => a.id === resolvedAgentId);
 
             for (const config of webhooks) {
@@ -852,7 +865,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   body: {
                     webhook_url: config.webhook_url,
                     payload: {
-                      event: "deal.posted",
+                      event: config.event_type === "deal.posted" ? "deal.posted" : eventName,
                       policy_number: m.policy_number?.trim(),
                       client_name: m.client_name?.trim(),
                       carrier: m.carrier?.trim(),

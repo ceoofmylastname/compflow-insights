@@ -168,6 +168,20 @@ export async function calculateAndSavePayouts(
 
   if (!carrier || !product || !application_date || !annual_premium || !resolved_agent_id) return;
 
+  /**
+   * Payment lifecycle per Wiki/comp-grid-engine.md (canonical seven-status model):
+   *   - status === 'Issue Paid'           -> payment_status='paid', paid_at=now()
+   *   - status === 'Issued' (or 'Active') -> payment_status='pending'
+   *   - everything else                    -> payment_status='pending' (engine still
+   *     writes rows so dashboards have data, but they aren't payable yet).
+   * 'Active' is the deprecated alias maintained during the migration window.
+   * TODO: remove 'Active' branch after Active enum drop.
+   */
+  const policyStatus = (policy as { status?: string | null }).status ?? null;
+  const isIssuePaid = policyStatus === "Issue Paid";
+  const paymentStatus: "paid" | "pending" = isIssuePaid ? "paid" : "pending";
+  const paidAt: string | null = isIssuePaid ? new Date().toISOString() : null;
+
   // 1. Fetch agents in tenant
   const { data: agents } = await supabaseClient
     .from("agents")
@@ -238,6 +252,8 @@ export async function calculateAndSavePayouts(
     commission_amount: number;
     payout_type: string;
     contract_type: string | null;
+    payment_status: "paid" | "pending";
+    paid_at: string | null;
   }> = [];
 
   payouts.push({
@@ -248,6 +264,8 @@ export async function calculateAndSavePayouts(
     commission_amount: annual_premium * directRate,
     payout_type: "direct",
     contract_type: writingAgent.contract_type,
+    payment_status: paymentStatus,
+    paid_at: paidAt,
   });
 
   // 6. Walk upline chain. The upline at policy-write time is recorded on the
@@ -293,6 +311,8 @@ export async function calculateAndSavePayouts(
         commission_amount: (uplineRate - downlineRate) * annual_premium,
         payout_type: "override",
         contract_type: upline.contract_type,
+        payment_status: paymentStatus,
+        paid_at: paidAt,
       });
       downlineRate = uplineRate;
     }

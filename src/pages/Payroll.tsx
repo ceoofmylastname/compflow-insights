@@ -42,9 +42,24 @@ const Payroll = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const expandedRun = payrollRuns?.find((r) => r.id === expandedId);
+  // Payroll only sums commission rows for policies in 'Issue Paid'
+  // (Wiki/payroll-page.md). Issued-but-not-yet-paid commissions show
+  // up in the "Booked, awaiting payout" panel below.
   const { data: periodPayouts } = useCommissionPayouts(
     expandedRun
-      ? { dateFrom: expandedRun.period_start, dateTo: expandedRun.period_end }
+      ? { dateFrom: expandedRun.period_start, dateTo: expandedRun.period_end, status: "Issue Paid" }
+      : {}
+  );
+  // Booked-awaiting-payout: Issued policies in the same window. Treats
+  // the deprecated 'Active' alias as Issued during the migration window.
+  const { data: bookedIssuedPayouts } = useCommissionPayouts(
+    expandedRun
+      ? { dateFrom: expandedRun.period_start, dateTo: expandedRun.period_end, status: "Issued" }
+      : {}
+  );
+  const { data: bookedActivePayouts } = useCommissionPayouts(
+    expandedRun
+      ? { dateFrom: expandedRun.period_start, dateTo: expandedRun.period_end, status: "Active" }
       : {}
   );
 
@@ -65,6 +80,36 @@ const Payroll = () => {
       .map(([id, data]) => ({ agentId: id, ...data }))
       .sort((a, b) => b.total - a.total);
   }, [periodPayouts, agents]);
+
+  /**
+   * Booked-but-not-yet-paid: commissions tied to policies in Issued
+   * (or the deprecated Active alias) for the same period. Sums by
+   * agent and is rendered as a separate panel above the payable list
+   * so owners see what cash is coming.
+   */
+  const bookedAwaitingPayout = useMemo(() => {
+    const allBooked = [...(bookedIssuedPayouts ?? []), ...(bookedActivePayouts ?? [])];
+    if (allBooked.length === 0) return [];
+    const map = new Map<string, { name: string; total: number; policyCount: number }>();
+    for (const p of allBooked) {
+      const existing = map.get(p.agent_id) ?? {
+        name: p.agent_name || "Unknown",
+        total: 0,
+        policyCount: 0,
+      };
+      existing.total += p.commission_amount || 0;
+      existing.policyCount += 1;
+      map.set(p.agent_id, existing);
+    }
+    return Array.from(map.entries())
+      .map(([id, data]) => ({ agentId: id, ...data }))
+      .sort((a, b) => b.total - a.total);
+  }, [bookedIssuedPayouts, bookedActivePayouts]);
+
+  const bookedAwaitingTotal = useMemo(
+    () => bookedAwaitingPayout.reduce((s, a) => s + a.total, 0),
+    [bookedAwaitingPayout]
+  );
 
   const handleCreate = () => {
     if (!periodStart || !periodEnd) return;
@@ -195,6 +240,43 @@ const Payroll = () => {
 
                       {run.notes && (
                         <p className="text-sm text-muted-foreground">{run.notes}</p>
+                      )}
+
+                      {/* Booked, awaiting payout — Issued policies whose
+                          commissions haven't paid yet. Visible only when
+                          there is something to surface. */}
+                      {bookedAwaitingPayout.length > 0 && (
+                        <div className="rounded-md border border-teal-300 dark:border-teal-500/30 bg-teal-50/40 dark:bg-teal-500/5 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">Booked, awaiting payout</p>
+                              <p className="text-xs text-muted-foreground">
+                                Issued policies in this period. Commissions calculated, payment pending.
+                              </p>
+                            </div>
+                            <span className="text-sm font-semibold text-teal-700 dark:text-teal-400">
+                              {formatCurrency(bookedAwaitingTotal)}
+                            </span>
+                          </div>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Agent</TableHead>
+                                <TableHead className="text-right">Policies</TableHead>
+                                <TableHead className="text-right">Booked Commission</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {bookedAwaitingPayout.map((a) => (
+                                <TableRow key={a.agentId}>
+                                  <TableCell className="font-medium">{a.name}</TableCell>
+                                  <TableCell className="text-right">{a.policyCount}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(a.total)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                       )}
 
                       {agentPayoutSummary.length === 0 ? (

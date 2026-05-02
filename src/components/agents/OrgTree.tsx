@@ -655,7 +655,11 @@ export function OrgTree({
   }, []);
 
   /* ---------- stats ---------- */
-  const { data: issuedPoliciesRaw } = usePolicies({ status: ["Active"] });
+  // "Issued" stat block counts Booked + Realized in the canonical
+  // seven-status model. 'Active' is the deprecated alias kept during
+  // the migration window.
+  // TODO: drop 'Active' after Active enum drop.
+  const { data: issuedPoliciesRaw } = usePolicies({ status: ["Issued", "Issue Paid", "Active"] });
   const issuedPolicies = getPoliciesArray(issuedPoliciesRaw);
 
   const { data: submittedPoliciesRaw } = usePolicies({ status: ["Submitted"] });

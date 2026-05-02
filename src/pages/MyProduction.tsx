@@ -17,7 +17,7 @@ import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { useCanImport } from "@/hooks/useCanImport";
 
-const STATUSES = ["Active", "Submitted", "Pending", "Terminated"];
+const STATUSES = ["Submitted", "Pending", "Issued", "Issue Paid", "Potential Lapse", "Terminated"];
 
 const MyProduction = () => {
   const { data: currentAgent } = useCurrentAgent();
@@ -62,10 +62,14 @@ const MyProduction = () => {
     });
   }, [policies, commissionByPolicy]);
 
+  // Funnel-bucket totals per Wiki/schema-spec.md (canonical seven-status model).
+  // 'Active' is the deprecated alias for 'Issued' during the migration window.
+  const isBooked = (s: string | null | undefined) => s === "Issued" || s === "Active";
+  const isRealized = (s: string | null | undefined) => s === "Issue Paid";
   const subPremium = enriched.filter(p => p.status === "Submitted").reduce((s, p) => s + (p.annual_premium || 0), 0);
-  const actPremium = enriched.filter(p => p.status === "Active").reduce((s, p) => s + (p.annual_premium || 0), 0);
+  const actPremium = enriched.filter(p => isBooked(p.status) || isRealized(p.status)).reduce((s, p) => s + (p.annual_premium || 0), 0);
   const subCommission = enriched.filter(p => p.status === "Submitted").reduce((s, p) => s + (p._commission || 0), 0);
-  const actCommission = enriched.filter(p => p.status === "Active").reduce((s, p) => s + (p._commission || 0), 0);
+  const actCommission = enriched.filter(p => isRealized(p.status)).reduce((s, p) => s + (p._commission || 0), 0);
   const totalRefsCollected = enriched.reduce((s, p) => s + (p.refs_collected || 0), 0);
   const totalRefsSold = enriched.reduce((s, p) => s + (p.refs_sold || 0), 0);
   const annualGoal = Number(currentAgent?.annual_goal) || 0;

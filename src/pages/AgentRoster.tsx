@@ -67,7 +67,10 @@ const AgentRoster = () => {
   const archiveAgent = useArchiveAgent();
   const deleteAgent = useDeleteAgent();
   const { positions: positionOptions } = usePositionOptions();
-  const { data: policiesRaw } = usePolicies({ status: ["Active"] });
+  // Booked or Realized policies (canonical seven-status model). 'Active'
+  // is the deprecated alias retained for half-deployed tenants.
+  // TODO: drop 'Active' after Active enum drop.
+  const { data: policiesRaw } = usePolicies({ status: ["Issued", "Issue Paid", "Active"] });
   const policies = getPoliciesArray(policiesRaw);
   const { data: payouts } = useCommissionPayouts({ dateFrom: `${new Date().getFullYear()}-01-01T00:00:00Z` });
   const queryClient = useQueryClient();

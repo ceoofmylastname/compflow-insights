@@ -106,20 +106,29 @@ const Dashboard = () => {
 
   const policyStatusMap = useMemo(() => new Map(allPolicies.map(p => [p.id, p.status])), [allPolicies]);
 
-  // Cards: Premiums
-  const subPremium = useMemo(() => allPolicies.filter(p => p.status === "Submitted").reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
-  const actPremium = useMemo(() => allPolicies.filter(p => p.status === "Active").reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
+  // Funnel-bucket premium totals per the seven-status canonical model
+  // (Wiki/schema-spec.md "Canonical policy status model").
+  // 'Active' is the deprecated alias for 'Issued' during the migration window.
+  const isBooked = (s: string | null | undefined) => s === "Issued" || s === "Active";
+  const isRealized = (s: string | null | undefined) => s === "Issue Paid";
+  const isPipeline = (s: string | null | undefined) => s === "Submitted" || s === "Pending";
+  const isAtRisk = (s: string | null | undefined) => s === "Potential Lapse";
 
-  // Cards: Commissions
+  const pipelinePremium = useMemo(() => allPolicies.filter(p => isPipeline(p.status)).reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
+  const bookedPremium = useMemo(() => allPolicies.filter(p => isBooked(p.status)).reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
+  const realizedPremium = useMemo(() => allPolicies.filter(p => isRealized(p.status)).reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
+  const atRiskPremium = useMemo(() => allPolicies.filter(p => isAtRisk(p.status)).reduce((s, p) => s + (p.annual_premium || 0), 0), [allPolicies]);
+
+  // Cards: Commissions (writing agent's direct payouts only)
   const directPayouts = useMemo(() => payouts?.filter(p => p.payout_type === "direct" && p.agent_id === currentAgent?.id) ?? [], [payouts, currentAgent]);
-  const subCommission = useMemo(() => directPayouts.filter(p => policyStatusMap.get(p.policy_id) === "Submitted").reduce((s, p) => s + (p.commission_amount || 0), 0), [directPayouts, policyStatusMap]);
-  const actCommission = useMemo(() => directPayouts.filter(p => policyStatusMap.get(p.policy_id) === "Active").reduce((s, p) => s + (p.commission_amount || 0), 0), [directPayouts, policyStatusMap]);
+  const bookedCommission = useMemo(() => directPayouts.filter(p => isBooked(policyStatusMap.get(p.policy_id))).reduce((s, p) => s + (p.commission_amount || 0), 0), [directPayouts, policyStatusMap]);
+  const realizedCommission = useMemo(() => directPayouts.filter(p => isRealized(policyStatusMap.get(p.policy_id))).reduce((s, p) => s + (p.commission_amount || 0), 0), [directPayouts, policyStatusMap]);
 
-  // Active Policies count
-  const activePolicies = useMemo(() => allPolicies.filter((p) => p.status === "Active").length, [allPolicies]);
-  
-  // Backwards compatibility for GoalProgress (using Issued Commission)
-  const totalCommission = actCommission;
+  // Booked policies count (Issued + Issue Paid)
+  const bookedPolicyCount = useMemo(() => allPolicies.filter(p => isBooked(p.status) || isRealized(p.status)).length, [allPolicies]);
+
+  // Goal progress targets realized cash so the bar reflects what's actually paid.
+  const totalCommission = realizedCommission;
 
   // Card 4: Team Size (exclude self)
   const teamSize = Math.max(0, (agents?.length ?? 0) - 1);
@@ -211,12 +220,15 @@ const Dashboard = () => {
 
         {/* Stat Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-2 gap-4">
-          <StatCard label="Submitted Premium" value={formatCurrency(subPremium)} icon={TrendingUp} loading={loading} animationDelay="0.05s" />
-          <StatCard label="Active Premium" value={formatCurrency(actPremium)} icon={TrendingUp} loading={loading} animationDelay="0.10s" />
-          <StatCard label="Active Policies" value={formatNumber(activePolicies)} icon={FileText} loading={loading} animationDelay="0.15s" />
-          <StatCard label="Team Size" value={formatNumber(teamSize)} icon={Users} loading={loading} animationDelay="0.20s" />
-          <StatCard label="Submitted Commission" value={formatCurrency(subCommission)} icon={DollarSign} loading={loading} animationDelay="0.25s" />
-          <StatCard label="Issued Commission" value={formatCurrency(actCommission)} icon={DollarSign} variant="hero" loading={loading} animationDelay="0.30s" />
+          {/* Funnel-bucket totals per Wiki/schema-spec.md (canonical seven-status model). */}
+          <StatCard label="Pipeline Premium" value={formatCurrency(pipelinePremium)} icon={TrendingUp} loading={loading} animationDelay="0.05s" />
+          <StatCard label="Booked Premium" value={formatCurrency(bookedPremium)} icon={TrendingUp} loading={loading} animationDelay="0.10s" />
+          <StatCard label="Realized Premium" value={formatCurrency(realizedPremium)} icon={DollarSign} variant="hero" loading={loading} animationDelay="0.15s" />
+          <StatCard label="At-risk Premium" value={formatCurrency(atRiskPremium)} icon={AlertTriangle} loading={loading} animationDelay="0.20s" />
+          <StatCard label="Booked Policies" value={formatNumber(bookedPolicyCount)} icon={FileText} loading={loading} animationDelay="0.25s" />
+          <StatCard label="Team Size" value={formatNumber(teamSize)} icon={Users} loading={loading} animationDelay="0.30s" />
+          <StatCard label="Booked Commission" value={formatCurrency(bookedCommission)} icon={DollarSign} loading={loading} animationDelay="0.35s" />
+          <StatCard label="Realized Commission" value={formatCurrency(realizedCommission)} icon={DollarSign} variant="hero" loading={loading} animationDelay="0.40s" />
           <div className="lg:col-span-2">
             {canImport && importSummary && (
               <div className="card-elevated p-4 h-full flex flex-col justify-center animate-slide-up" style={{ animationDelay: "0.35s" }}>

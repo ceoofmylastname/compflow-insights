@@ -14,14 +14,35 @@ export interface ScoreRow {
   annualGoal: number;
 }
 
+/**
+ * Rank modes per Wiki/scoreboard-page.md (canonical seven-status model):
+ *   - All        : every non-Draft policy
+ *   - Submitted  : pipeline-only (Submitted)
+ *   - Producers  : Booked + Realized (Issued + Issue Paid)
+ *   - Earners    : Realized only (Issue Paid)
+ */
+export type ScoreboardRankMode = "All" | "Submitted" | "Producers" | "Earners";
+
 interface ScoreboardFilters {
   dateFrom?: string;
   dateTo?: string;
   carrier?: string;
   status?: string;
   leadSource?: string;
-  rankMode?: "All" | "Submitted" | "Active";
+  rankMode?: ScoreboardRankMode;
 }
+
+/**
+ * Map a rank mode to the underlying policies.status filter set. Includes
+ * the deprecated 'Active' alias for half-deployed tenants during the
+ * migration window.
+ * TODO: drop 'Active' after Active enum drop.
+ */
+const RANK_MODE_STATUSES: Record<Exclude<ScoreboardRankMode, "All">, string[]> = {
+  Submitted: ["Submitted"],
+  Producers: ["Issued", "Issue Paid", "Active"],
+  Earners: ["Issue Paid"],
+};
 
 function usePoliciesForScoreboard(filters: ScoreboardFilters) {
   return useQuery({
@@ -36,7 +57,9 @@ function usePoliciesForScoreboard(filters: ScoreboardFilters) {
       if (filters.dateTo) query = query.lte("application_date", filters.dateTo);
       if (filters.carrier) query = query.eq("carrier", filters.carrier);
       if (filters.status) query = query.eq("status", filters.status);
-      if (filters.rankMode && filters.rankMode !== "All") query = query.eq("status", filters.rankMode);
+      if (filters.rankMode && filters.rankMode !== "All") {
+        query = query.in("status", RANK_MODE_STATUSES[filters.rankMode]);
+      }
       if (filters.leadSource) query = query.eq("lead_source", filters.leadSource);
 
       const { data, error } = await query;
@@ -63,7 +86,9 @@ function usePayoutsForScoreboard(filters: ScoreboardFilters) {
       if (filters.dateTo) query = query.lte("policies.application_date", filters.dateTo);
       if (filters.carrier) query = query.eq("policies.carrier", filters.carrier);
       if (filters.status) query = query.eq("policies.status", filters.status);
-      if (filters.rankMode && filters.rankMode !== "All") query = query.eq("policies.status", filters.rankMode);
+      if (filters.rankMode && filters.rankMode !== "All") {
+        query = query.in("policies.status", RANK_MODE_STATUSES[filters.rankMode]);
+      }
       if (filters.leadSource) query = query.eq("policies.lead_source", filters.leadSource);
 
       const { data, error } = await query;

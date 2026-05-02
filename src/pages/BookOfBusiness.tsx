@@ -28,7 +28,29 @@ import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { useCanImport } from "@/hooks/useCanImport";
 
-const POLICY_STATUSES = ["Submitted", "Pending", "Active", "Terminated"];
+const POLICY_STATUSES = [
+  "Submitted",
+  "Pending",
+  "Issued",
+  "Issue Paid",
+  "Potential Lapse",
+  "Terminated",
+];
+
+/**
+ * Bucket filter values per Wiki/schema-spec.md (Canonical policy status
+ * model). Maps a label to the underlying status set the filter expands
+ * to. Drafts are intentionally absent — the Drafts tab is a separate
+ * surface scoped to the creator only.
+ */
+const BUCKET_FILTERS: Record<string, string[]> = {
+  Pipeline: ["Submitted", "Pending"],
+  Booked: ["Issued", "Active"], // 'Active' is the deprecated alias; included for half-deployed rows
+  Realized: ["Issue Paid"],
+  "At-risk": ["Potential Lapse"],
+  Dead: ["Terminated"],
+};
+
 const PAGE_SIZE = 50;
 
 const BookOfBusiness = () => {
@@ -36,6 +58,7 @@ const BookOfBusiness = () => {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [carrier, setCarrier] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [bucketFilter, setBucketFilter] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const { dateFrom, dateTo } = useFilters();
   const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(null);
@@ -72,7 +95,14 @@ const BookOfBusiness = () => {
   const { data: result, isLoading, error, refetch } = usePolicies({
     search: debouncedSearch || undefined,
     carrier: carrier && carrier !== "all" ? carrier : undefined,
-    status: statusFilter && statusFilter !== "all" ? [statusFilter] : undefined,
+    // Status filter takes precedence; bucket filter expands to its
+    // underlying status set when no specific status is picked.
+    status:
+      statusFilter && statusFilter !== "all"
+        ? [statusFilter]
+        : bucketFilter && bucketFilter !== "all"
+          ? BUCKET_FILTERS[bucketFilter]
+          : undefined,
     agentId: agentFilter || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -137,20 +167,32 @@ const BookOfBusiness = () => {
       await calculateAndSavePayouts(policyId, supabase);
     } catch {}
 
-    // Check for non-Active to Active transition
-    if (policy && policy.status !== "Active" && newStatus === "Active" && currentAgent) {
+    // Webhook fire on transition into Booked or Realized buckets per
+    // Wiki/webhooks-and-culture-tools.md.
+    //   policy.issued    fires when status moves from any non-booked
+    //                    state into Issued (or the deprecated Active).
+    //   policy.issue_paid fires when status moves into Issue Paid.
+    // The legacy deal.posted event keeps firing on the issued
+    // transition for back-compat with existing tenant webhooks.
+    const wasIssued = policy?.status === "Issued" || policy?.status === "Active";
+    const becameIssued = (newStatus === "Issued" || newStatus === "Active") && !wasIssued;
+    const becameIssuePaid = newStatus === "Issue Paid" && policy?.status !== "Issue Paid";
+    if (policy && (becameIssued || becameIssuePaid) && currentAgent) {
       try {
+        const eventName = becameIssuePaid ? "policy.issue_paid" : "policy.issued";
         const { data: activeWebhooks } = await supabase
           .from("webhook_configs")
-          .select("webhook_url")
+          .select("webhook_url, event_type")
           .eq("tenant_id", currentAgent.tenant_id)
           .eq("is_active", true)
-          .eq("event_type", "deal.posted" as any);
+          .in("event_type", becameIssuePaid
+            ? [eventName as any]
+            : [eventName as any, "deal.posted" as any]);
 
         if (activeWebhooks && activeWebhooks.length > 0) {
           const agent = agents?.find(a => a.id === policy.resolved_agent_id);
           const webhookPayload = {
-            event: "deal.posted",
+            event: eventName,
             policy_number: policy.policy_number || "",
             client_name: policy.client_name || "",
             carrier: policy.carrier || "",
@@ -322,6 +364,13 @@ const BookOfBusiness = () => {
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               {POLICY_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={bucketFilter} onValueChange={handleFilterChange(setBucketFilter)}>
+            <SelectTrigger className="w-full md:w-36"><SelectValue placeholder="All Buckets" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              {Object.keys(BUCKET_FILTERS).map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={carrier} onValueChange={handleFilterChange(setCarrier)}>

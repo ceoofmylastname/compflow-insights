@@ -23,22 +23,62 @@ export const CANONICAL_STATUSES = [
   "Draft",
   "Submitted",
   "Pending",
-  "Active",
+  "Issued",
+  "Issue Paid",
   "Terminated",
   "Potential Lapse",
 ] as const;
 
 export type CanonicalStatus = (typeof CANONICAL_STATUSES)[number];
 
+/**
+ * Backwards-compat shim for the deprecated 'Active' status. Any legacy
+ * code path that returns or stores 'Active' should be funneled through
+ * this helper so half-deployed tenants keep rendering correctly until
+ * the follow-up PR drops 'Active' from the enum.
+ *
+ * TODO: remove after Active enum drop.
+ */
+export function coerceLegacyActive<T extends string | null | undefined>(s: T): T {
+  return (s === "Active" ? "Issued" : s) as T;
+}
+
 /** One-line UI hint per canonical status, surfaced next to the dropdown. */
 export const CANONICAL_STATUS_HINTS: Record<CanonicalStatus, string> = {
   Draft: "Saved but not yet submitted to the carrier",
   Submitted: "Sent to the carrier, awaiting review",
   Pending: "Submitted but not yet issued (underwriting / free look)",
-  Active: "Policy is issued and inforce",
-  Terminated: "Policy is closed (lapsed, surrendered, declined, withdrawn)",
+  Issued: "Carrier approved, you haven't been paid yet",
+  "Issue Paid": "You've been paid for this policy",
+  Terminated: "Closed (lapsed, surrendered, declined, withdrawn)",
   "Potential Lapse": "Past due or in grace period; may terminate soon",
 };
+
+/**
+ * Funnel buckets per Wiki/schema-spec.md (Canonical policy status model).
+ * Drives the five sub-totals on the Production Dashboard, the bucket
+ * filter on Book of Business, and leaderboard groupings.
+ */
+export const STATUS_BUCKETS = {
+  Pipeline: ["Draft", "Submitted", "Pending"],
+  Booked: ["Issued"],
+  Realized: ["Issue Paid"],
+  "At-risk": ["Potential Lapse"],
+  Dead: ["Terminated"],
+} as const satisfies Record<string, readonly CanonicalStatus[]>;
+
+export type StatusBucket = keyof typeof STATUS_BUCKETS;
+
+/** Reverse lookup: canonical status -> its bucket. */
+export function bucketForStatus(status: string | null | undefined): StatusBucket | null {
+  if (!status) return null;
+  for (const [bucket, statuses] of Object.entries(STATUS_BUCKETS) as [StatusBucket, readonly string[]][]) {
+    if (statuses.includes(status)) return bucket;
+  }
+  // Legacy 'Active' reads as Booked (its replacement is Issued).
+  if (status === "Active") return "Booked";
+  return null;
+}
 
 /** Read-only platform default mapping, lower-cased and trimmed for lookup. */
 export const DEFAULT_STATUS_MAP: Readonly<Record<string, CanonicalStatus>> = (() => {
@@ -51,6 +91,9 @@ export const DEFAULT_STATUS_MAP: Readonly<Record<string, CanonicalStatus>> = (()
   }
   // Belt and suspenders: every canonical also maps to itself.
   for (const c of CANONICAL_STATUSES) out[normalizeKey(c)] = c;
+  // Legacy 'Active' from the prior six-status model -> Issued.
+  // TODO: remove after Active enum drop.
+  out[normalizeKey("Active")] = "Issued";
   return Object.freeze(out);
 })();
 

@@ -201,6 +201,14 @@
   .stagger-3 { animation-delay: 0.15s; }
   .stagger-4 { animation-delay: 0.20s; }
 
+  /* Status pulse — fired by StatusBadge when a policy's status changes
+     in place. Locked at 400ms per Wiki/ui-design-system.md. */
+  @keyframes status-pulse {
+    0%   { box-shadow: 0 0 0 0 currentColor; }
+    60%  { box-shadow: 0 0 0 6px rgba(0,0,0,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+  }
+
   /* ── Main background with dot grid ── */
   .main-bg {
     background-color: hsl(var(--background));
