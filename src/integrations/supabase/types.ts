@@ -1372,6 +1372,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      current_agent_id: { Args: never; Returns: string }
       flag_chargeback_risk: { Args: never; Returns: undefined }
       get_agent_position_at: {
         Args: { _agent_id: string; _at_date: string }
@@ -1394,6 +1395,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_owner_or_manager: { Args: never; Returns: boolean }
       is_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
       reassign_agent_upline: {
         Args: { p_agent_id: string; p_new_upline_email: string }
