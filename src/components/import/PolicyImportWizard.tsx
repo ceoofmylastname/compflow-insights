@@ -95,6 +95,8 @@ interface AgentResolutionRow {
   agentEmail: string | null;
   carrier: string;
   resolvedAgentId: string | null;
+  /** Authoritative name from the JOIN done inside resolveAgent. */
+  resolvedAgentName: string | null;
   method: string | null;
   manualAgentId: string;
   saveAsAlias: boolean;
@@ -202,7 +204,6 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
      that carrier). 'idle' = panel visible, 'saving' = inserting,
      'done' = panel hidden because user chose Add or Skip. */
   const [newContractsState, setNewContractsState] = useState<"idle" | "saving" | "done">("idle");
-  const [selectedNewWais, setSelectedNewWais] = useState<Set<string>>(new Set());
 
   /* Step 5: Import */
   const [importing, setImporting] = useState(false);
@@ -230,7 +231,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
     setImportProgress(0);
     setImportResult(null);
     setNewContractsState("idle");
-    setSelectedNewWais(new Set());
+    setOrphanAgentPicks({});
   }, []);
 
   /**
@@ -506,6 +507,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         agentEmail: input.agentEmail,
         carrier: input.carrier,
         resolvedAgentId: result.agentId,
+        resolvedAgentName: result.agentName ?? null,
         method: result.method,
         manualAgentId: "",
         saveAsAlias: false,
@@ -731,10 +733,27 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       const m = row.mapped;
 
       try {
-        const resolvedAgentId = row.resolvedAgentId || currentAgent.id;
+        // Orphan path (per Wiki/carrier-ingest-pipeline.md 2026-05-02
+        // refinement): when the row has a writing number but no
+        // contract match AND the importer is the owner, deposit the
+        // row with resolved_agent_id NULL. The auto-link trigger on
+        // agent_contracts will attach it later when the contract gets
+        // added. Non-owner managers fall back to the existing
+        // assign-to-importer behavior because the policies INSERT RLS
+        // (owner-only) blocks orphan inserts from non-owners.
+        const isOrphan = row.resolutionMethod === "orphan" && currentAgent.is_owner === true;
+        const resolvedAgentId: string | null = isOrphan
+          ? null
+          : (row.resolvedAgentId || currentAgent.id);
 
         // Manager scope: skip if final resolution is outside their downline.
-        if (downlineIdsForImport != null && !downlineIdsForImport.has(resolvedAgentId)) {
+        // Orphans skip this guard (resolvedAgentId is null and only the
+        // owner reaches this branch).
+        if (
+          resolvedAgentId !== null &&
+          downlineIdsForImport != null &&
+          !downlineIdsForImport.has(resolvedAgentId)
+        ) {
           result.skipped++;
           setImportProgress(Math.round(((i + 1) / total) * 100));
           continue;
@@ -831,6 +850,12 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         // cells preserve existing DB values. For INSERT: include nulls for
         // missing fields so the new row is well-formed.
         const isExistingRow = !!existingRow;
+        // agent_number is the denormalized writing number on the
+        // policy row that the auto_link_orphan_policies trigger keys
+        // off of. For resolved rows we still populate it so future
+        // contract edits (e.g. correcting an agent_number on a
+        // contract) stay consistent. For orphan rows it's the only
+        // signal the trigger has to attach the policy later.
         const payload: Record<string, unknown> = {
           tenant_id: currentAgent.tenant_id,
           policy_number: m.policy_number?.trim() || null,
@@ -840,6 +865,7 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
           refs_sold: refsSoldToUpsert,
           resolved_agent_id: resolvedAgentId,
           writing_agent_id: m.writing_agent_id?.trim() || null,
+          agent_number: m.writing_agent_id?.trim() || null,
         };
 
         const setIfPresentOrInsert = (key: string, value: string | null | undefined) => {
@@ -1032,67 +1058,33 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
   }, [importRows]);
 
   /* ---------------------------------------------------------------- */
-  /*  Post-import: "new writing numbers detected" panel                */
+  /*  Post-import: "orphan policies — pick agent" panel                */
   /*                                                                   */
-  /*  Surfaces writing numbers that resolved to existing agents via    */
-  /*  the email-fallback path during this import (i.e. the writing    */
-  /*  number wasn't in agent_contracts for that carrier yet). Lets    */
-  /*  the owner one-click add them to contracts so future statements   */
-  /*  resolve via writing-number directly. Per Wiki/carrier-ingest-    */
-  /*  pipeline.md (2026-05-02) writing-number is the canonical key —   */
-  /*  email is fallback only.                                          */
+  /*  Surfaces writing numbers that imported as orphans (resolved_     */
+  /*  agent_id NULL). Owner picks an agent per writing number; the     */
+  /*  wizard inserts the matching agent_contracts row, the auto-link   */
+  /*  trigger fires, and every orphan policy with that writing number  */
+  /*  attaches in the same transaction.                                */
   /* ---------------------------------------------------------------- */
-  const newContractsCandidates = useMemo(() => {
+  const orphanCandidates = useMemo(() => {
     return agentResolutions
-      .filter(
-        (r) =>
-          !!r.writingAgentId &&
-          r.method === "email" &&
-          !!r.resolvedAgentId &&
-          !r.manualAgentId
-      )
+      .filter((r) => !!r.writingAgentId && r.method === "orphan" && !r.manualAgentId)
       .map((r) => ({
         writingAgentId: r.writingAgentId,
         carrier: r.carrier,
-        resolvedAgentId: r.resolvedAgentId as string,
       }));
   }, [agentResolutions]);
 
-  const candidatesByAgent = useMemo(() => {
-    const out = new Map<string, { name: string; entries: typeof newContractsCandidates }>();
-    for (const c of newContractsCandidates) {
-      const a = agents?.find((x) => x.id === c.resolvedAgentId);
-      const name = a ? `${a.first_name} ${a.last_name}`.trim() : "Unknown";
-      if (!out.has(c.resolvedAgentId)) out.set(c.resolvedAgentId, { name, entries: [] });
-      out.get(c.resolvedAgentId)!.entries.push(c);
-    }
-    return out;
-  }, [newContractsCandidates, agents]);
+  // Per-orphan agent picker state. Map<writingAgentId, agentId | "">.
+  const [orphanAgentPicks, setOrphanAgentPicks] = useState<Record<string, string>>({});
 
-  // Default-select every candidate the moment the panel becomes visible.
-  // Owner can untick before clicking Add.
-  const ensureDefaultSelection = () => {
-    if (newContractsState !== "idle") return;
-    if (selectedNewWais.size > 0) return;
-    if (newContractsCandidates.length === 0) return;
-    setSelectedNewWais(new Set(newContractsCandidates.map((c) => c.writingAgentId)));
-  };
-  if (importResult && newContractsCandidates.length > 0) {
-    ensureDefaultSelection();
-  }
-
-  const handleAddNewContracts = useCallback(async () => {
+  const handleLinkOrphans = useCallback(async () => {
     if (!currentAgent) return;
-    if (selectedNewWais.size === 0) {
-      setNewContractsState("done");
-      return;
-    }
-    setNewContractsState("saving");
-    const rowsToInsert = newContractsCandidates
-      .filter((c) => selectedNewWais.has(c.writingAgentId))
+    const rowsToInsert = orphanCandidates
+      .filter((c) => orphanAgentPicks[c.writingAgentId])
       .map((c) => ({
         tenant_id: currentAgent.tenant_id,
-        agent_id: c.resolvedAgentId,
+        agent_id: orphanAgentPicks[c.writingAgentId],
         carrier: c.carrier,
         agent_number: c.writingAgentId,
         contract_type: "Direct Pay",
@@ -1102,18 +1094,22 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       setNewContractsState("done");
       return;
     }
+    setNewContractsState("saving");
     const { error } = await supabase.from("agent_contracts").insert(rowsToInsert as any);
     if (error) {
       toast.error(`Could not add ${rowsToInsert.length} contracts: ${error.message}`);
       setNewContractsState("idle");
       return;
     }
-    queryClient.invalidateQueries({ queryKey: ["agentContracts"] });
+    // The auto_link_orphan_policies trigger fires per inserted row.
+    // Invalidate everything: orphans just attached server-side, every
+    // aggregation that reads policies needs to recompute.
+    queryClient.invalidateQueries();
     toast.success(
-      `${rowsToInsert.length} writing number(s) added to contracts. Future imports will resolve directly.`
+      `${rowsToInsert.length} writing number(s) linked. Matching orphan policies attached automatically.`
     );
     setNewContractsState("done");
-  }, [currentAgent, newContractsCandidates, selectedNewWais, queryClient]);
+  }, [currentAgent, orphanCandidates, orphanAgentPicks, queryClient]);
 
   const handleSkipNewContracts = useCallback(() => {
     setNewContractsState("done");
@@ -1435,11 +1431,21 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         {/* ============ STEP 3: Agent Resolution ============ */}
         {step === 2 && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">
                 {agentResolutions.filter((r) => r.resolvedAgentId || r.manualAgentId).length} of{" "}
                 {agentResolutions.length} agent IDs resolved
+                {agentResolutions.filter((r) => r.method === "orphan" && !r.manualAgentId).length > 0 && (
+                  <span className="ml-2 text-amber-600 dark:text-amber-400">
+                    ({agentResolutions.filter((r) => r.method === "orphan" && !r.manualAgentId).length} will import as unassigned)
+                  </span>
+                )}
               </p>
+              {agentResolutions.some((r) => r.method === "orphan" && !r.manualAgentId) && (
+                <p className="text-xs text-muted-foreground">
+                  Unassigned rows still import. Add the writing number to the right agent's contracts later (or use the override) to auto-link them.
+                </p>
+              )}
             </div>
 
             {agentResolutions.length === 0 ? (
@@ -1462,7 +1468,16 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   <TableBody>
                     {agentResolutions.map((r, i) => {
                       const resolved = r.resolvedAgentId || r.manualAgentId;
-                      const resolvedAgent = agents?.find((a) => a.id === resolved);
+                      // Prefer the JOIN-sourced name from resolveAgent
+                      // (fixes the MOO-74291 display bug where the
+                      // cached useAgents() list was missing the agent
+                      // even though the contract match succeeded).
+                      // Fall back to the agents cache only when the
+                      // JOIN didn't surface a name (e.g. manual override).
+                      const cachedAgent = agents?.find((a) => a.id === resolved);
+                      const resolvedAgentDisplay =
+                        r.resolvedAgentName ??
+                        (cachedAgent ? `${cachedAgent.first_name} ${cachedAgent.last_name}`.trim() : null);
                       return (
                         <TableRow key={r.writingAgentId}>
                           <TableCell className="text-xs font-mono">
@@ -1471,7 +1486,19 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                           <TableCell className="text-xs">{r.carrier}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1">
-                              {r.method ? (
+                              {r.manualAgentId ? (
+                                <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-800">
+                                  manual
+                                </Badge>
+                              ) : r.method === "orphan" ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] bg-amber-100 text-amber-800"
+                                  title="Will import as unassigned. Add this writing number to the right agent's contracts later (or use the override below) to auto-link the orphan policies."
+                                >
+                                  orphan pending
+                                </Badge>
+                              ) : r.method ? (
                                 <Badge
                                   variant="secondary"
                                   className={cn(
@@ -1480,10 +1507,6 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                                   )}
                                 >
                                   {r.method}
-                                </Badge>
-                              ) : r.manualAgentId ? (
-                                <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-800">
-                                  manual
                                 </Badge>
                               ) : (
                                 <Badge variant="destructive" className="text-[10px]">
@@ -1511,9 +1534,9 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                             </div>
                           </TableCell>
                           <TableCell className="text-xs">
-                            {resolvedAgent
-                              ? `${resolvedAgent.first_name} ${resolvedAgent.last_name}`
-                              : "--"}
+                            {resolvedAgentDisplay ?? (r.method === "orphan" ? (
+                              <span className="text-muted-foreground italic">(unassigned)</span>
+                            ) : "--")}
                           </TableCell>
                           <TableCell>
                             <Select
@@ -1791,44 +1814,49 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   </p>
                 )}
 
-                {/* Post-import: new writing numbers detected (email-fallback resolutions). */}
-                {newContractsState !== "done" && newContractsCandidates.length > 0 && (
-                  <div className="rounded-md border border-primary/40 bg-primary/5 p-4 space-y-3">
+                {/* Post-import: orphan policies — pick agent. */}
+                {newContractsState !== "done" && orphanCandidates.length > 0 && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/30 p-4 space-y-3">
                     <div>
                       <p className="text-sm font-semibold text-foreground">
-                        {newContractsCandidates.length} new writing number(s) resolved via email match
+                        {orphanCandidates.length} writing number(s) imported as unassigned
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        Add them to the agents' contracts so future statements resolve by writing number directly.
+                        Pick an agent for each. Adding the contract auto-attaches every matching orphan policy.
                       </p>
                     </div>
                     <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                      {Array.from(candidatesByAgent.entries()).map(([agentId, group]) => (
-                        <div key={agentId} className="rounded border border-border bg-background p-2">
-                          <p className="text-xs font-semibold text-foreground mb-1.5">
-                            {group.name}
-                          </p>
-                          <div className="space-y-1">
-                            {group.entries.map((entry) => (
-                              <label
-                                key={entry.writingAgentId}
-                                className="flex items-center gap-2 text-xs cursor-pointer"
-                              >
-                                <Checkbox
-                                  checked={selectedNewWais.has(entry.writingAgentId)}
-                                  onCheckedChange={(v) => {
-                                    setSelectedNewWais((prev) => {
-                                      const next = new Set(prev);
-                                      if (v === true) next.add(entry.writingAgentId);
-                                      else next.delete(entry.writingAgentId);
-                                      return next;
-                                    });
-                                  }}
-                                />
-                                <span className="font-mono text-foreground">{entry.writingAgentId}</span>
-                                <span className="text-muted-foreground">— {entry.carrier}</span>
-                              </label>
-                            ))}
+                      {orphanCandidates.map((entry) => (
+                        <div
+                          key={entry.writingAgentId}
+                          className="rounded border border-border bg-background p-2 flex flex-col sm:flex-row sm:items-center gap-2"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-mono text-foreground">{entry.writingAgentId}</p>
+                            <p className="text-[10px] text-muted-foreground">{entry.carrier}</p>
+                          </div>
+                          <div className="sm:w-56 shrink-0">
+                            <Select
+                              value={orphanAgentPicks[entry.writingAgentId] || "__none__"}
+                              onValueChange={(v) =>
+                                setOrphanAgentPicks((prev) => ({
+                                  ...prev,
+                                  [entry.writingAgentId]: v === "__none__" ? "" : v,
+                                }))
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Pick agent..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">-- Skip --</SelectItem>
+                                {(agents ?? []).map((a) => (
+                                  <SelectItem key={a.id} value={a.id}>
+                                    {a.first_name} {a.last_name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       ))}
@@ -1840,16 +1868,19 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                         onClick={handleSkipNewContracts}
                         disabled={newContractsState === "saving"}
                       >
-                        Skip
+                        Skip all
                       </Button>
                       <Button
                         size="sm"
-                        onClick={handleAddNewContracts}
-                        disabled={newContractsState === "saving" || selectedNewWais.size === 0}
+                        onClick={handleLinkOrphans}
+                        disabled={
+                          newContractsState === "saving" ||
+                          orphanCandidates.every((c) => !orphanAgentPicks[c.writingAgentId])
+                        }
                       >
                         {newContractsState === "saving"
-                          ? "Adding..."
-                          : `Add ${selectedNewWais.size} to contracts`}
+                          ? "Linking..."
+                          : `Add ${orphanCandidates.filter((c) => orphanAgentPicks[c.writingAgentId]).length} contract(s) and link orphans`}
                       </Button>
                     </div>
                   </div>

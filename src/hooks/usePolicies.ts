@@ -18,6 +18,13 @@ export interface PolicyFilters {
   leadSource?: string;
   page?: number;
   pageSize?: number;
+  /**
+   * When true, restrict to orphan policies (resolved_agent_id IS NULL).
+   * Owner-only in practice — non-owner agents don't see orphans via RLS,
+   * so this filter is a no-op for them. Per Wiki/carrier-ingest-pipeline.md
+   * (orphan auto-link mechanism, 2026-05-02).
+   */
+  unassigned?: boolean;
 }
 
 export interface PaginatedPolicies {
@@ -72,6 +79,9 @@ export function usePolicies(filters: PolicyFilters = {}) {
       }
       if (filters.search) {
         query = query.ilike("client_name", `%${filters.search}%`);
+      }
+      if (filters.unassigned) {
+        query = query.is("resolved_agent_id", null);
       }
 
       query = query.order("created_at", { ascending: false });

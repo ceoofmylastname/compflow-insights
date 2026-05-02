@@ -71,6 +71,7 @@ const BookOfBusiness = () => {
   const [hasRiskFilter, setHasRiskFilter] = useState(false);
   const [loaOnlyFilter, setLoaOnlyFilter] = useState(false);
   const [needsReviewFilter, setNeedsReviewFilter] = useState(false);
+  const [unassignedFilter, setUnassignedFilter] = useState(false);
   const [leadSourceFilter, setLeadSourceFilter] = useState("");
   const [contractTypeFilter, setContractTypeFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -122,6 +123,7 @@ const BookOfBusiness = () => {
     dateTo: dateTo || undefined,
     leadSource: leadSourceFilter && leadSourceFilter !== "all" ? leadSourceFilter : undefined,
     contractType: contractTypeFilter && contractTypeFilter !== "all" ? contractTypeFilter : undefined,
+    unassigned: unassignedFilter || undefined,
     page,
     pageSize: PAGE_SIZE,
   });
@@ -176,7 +178,7 @@ const BookOfBusiness = () => {
   }, [
     debouncedSearch, carrier, statusFilter, bucketFilter, agentFilter,
     dateFrom, dateTo, leadSourceFilter, contractTypeFilter,
-    hasRiskFilter, loaOnlyFilter, needsReviewFilter,
+    hasRiskFilter, loaOnlyFilter, needsReviewFilter, unassignedFilter,
   ]);
 
   const isOwnerForBulk = currentAgent?.is_owner ?? false;
@@ -481,7 +483,22 @@ const BookOfBusiness = () => {
       },
     },
     { key: "annual_premium", label: "Annual Premium", render: (r) => formatCurrency(r.annual_premium), getValue: (r) => r.annual_premium },
-    { key: "resolved_agent_id", label: "Writing Agent", render: (r) => getAgentName(r.resolved_agent_id) },
+    {
+      key: "resolved_agent_id",
+      label: "Writing Agent",
+      render: (r) =>
+        r.resolved_agent_id ? (
+          getAgentName(r.resolved_agent_id)
+        ) : (
+          <Badge
+            variant="secondary"
+            className="text-[10px] bg-amber-100 text-amber-800 border border-amber-300"
+            title={(r as any).agent_number ? `Orphan policy. Add ${(r as any).agent_number} to an agent's contracts to auto-link.` : "Orphan policy."}
+          >
+            Unassigned
+          </Badge>
+        ),
+    },
     { key: "application_date", label: "Application Date", render: (r) => formatDate(r.application_date) },
   ];
 
@@ -636,6 +653,22 @@ const BookOfBusiness = () => {
                 Review
               </Badge>
               Needs Review
+            </span>
+          </label>
+          {/* Owner-only orphan filter per Wiki/carrier-ingest-pipeline.md
+              (orphan auto-link, 2026-05-02). RLS already hides orphans
+              from non-owners; the checkbox is rendered for everyone but
+              has no effect for non-owners. */}
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <Checkbox
+              checked={unassignedFilter}
+              onCheckedChange={(v) => setUnassignedFilter(!!v)}
+            />
+            <span className="flex items-center gap-1">
+              <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-1 py-0 h-4">
+                Unassigned
+              </Badge>
+              Show unassigned only
             </span>
           </label>
         </div>
