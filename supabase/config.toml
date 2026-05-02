@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.get-platform-data]
 verify_jwt = false
+
+[functions.signup-owner]
+verify_jwt = false

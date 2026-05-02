@@ -16,10 +16,23 @@ interface InviteData {
   token: string;
 }
 
+type Tier = "starter" | "growth" | "pro" | "enterprise";
+
+const VALID_TIERS: Tier[] = ["starter", "growth", "pro", "enterprise"];
+const TIER_LABEL: Record<Tier, string> = {
+  starter: "Starter ($97/mo)",
+  growth: "Growth ($297/mo)",
+  pro: "Pro ($497/mo)",
+  enterprise: "Enterprise (custom)",
+};
+
 const Signup = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite");
+  const planParam = searchParams.get("plan");
+  const whiteLabelParam = searchParams.get("whiteLabel") === "1";
+  const tier: Tier = VALID_TIERS.includes(planParam as Tier) ? (planParam as Tier) : "starter";
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -59,19 +72,19 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      // 1. Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: `https://${import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com"}` },
-      });
-
-      if (authError) throw authError;
-      if (!authData.user) throw new Error("Signup failed");
-
-      const userId = authData.user.id;
-
       if (isInviteFlow) {
+        // Invite flow still uses client-side signUp because the agent
+        // record already exists (or will be created with auth_user_id =
+        // self) and existing RLS policies allow that path.
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: `https://${import.meta.env.VITE_APP_HOSTNAME || "baseshophq.com"}` },
+        });
+        if (authError) throw authError;
+        if (!authData.user) throw new Error("Signup failed");
+        const userId = authData.user.id;
+
         // Invite flow: claim existing agent record + mark invite accepted
         // Find the agent record by email + tenant
         const { data: existingAgent } = await supabase
@@ -118,54 +131,59 @@ const Signup = () => {
         toast.success("Account created! Welcome to the team.");
         navigate("/dashboard");
       } else {
-        // Check if there's an unclaimed agent record with this email (added by owner to roster)
-        const { data: unclaimedAgent } = await supabase
-          .from("agents")
-          .select("id, tenant_id")
-          .eq("email", email)
-          .is("auth_user_id", null)
-          .maybeSingle();
-
-        if (unclaimedAgent) {
-          // Claim the existing agent record via security definer function
-          await supabase.rpc("claim_agent_record", {
-            p_agent_email: email,
-            p_user_id: userId,
-            p_first_name: firstName || null,
-            p_last_name: lastName || null,
-            p_npn: npn || null,
-            p_phone: phone || null,
-          });
-
-          toast.success("Account created! Welcome to the team.");
-          navigate("/dashboard");
-        } else {
-          // Owner signup flow: create tenant + owner agent
-          const { data: tenant, error: tenantError } = await supabase
-            .from("tenants")
-            .insert({ name: agencyName })
-            .select("id")
-            .single();
-
-          if (tenantError) throw tenantError;
-
-          const { error: agentError } = await supabase.from("agents").insert({
-            tenant_id: tenant.id,
-            auth_user_id: userId,
+        // Owner signup flow.
+        //
+        // 1) Provision auth user + tenant + owner agent atomically via the
+        //    signup-owner edge function (service-role; bypasses RLS).
+        // 2) Sign the user in client-side so they have a JWT.
+        // 3) Send them to Stripe Checkout for the chosen tier. After
+        //    payment they land at /settings?tab=billing&checkout=success
+        //    and ProtectedRoute redirects them to the onboarding wizard.
+        const { data: provData, error: provError } = await supabase.functions.invoke("signup-owner", {
+          body: {
+            email,
+            password,
             first_name: firstName,
             last_name: lastName,
-            email,
-            npn: npn || null,
-            phone: phone || null,
-            is_owner: true,
-            start_date: new Date().toISOString().split("T")[0],
-          });
+            agency_name: agencyName,
+            phone: phone || undefined,
+            npn: npn || undefined,
+          },
+        });
 
-          if (agentError) throw agentError;
-
-          toast.success("Account created!");
-          navigate("/onboarding");
+        if (provError || (provData as any)?.error) {
+          const msg = (provData as any)?.error ?? provError?.message ?? "Signup failed";
+          throw new Error(msg);
         }
+
+        // Sign in to get a session before calling the (auth-required)
+        // checkout function.
+        const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInErr) throw signInErr;
+
+        // Create the Stripe Checkout session for the selected tier and
+        // redirect. If the user closed the marketing site without picking
+        // a tier they default to Starter.
+        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke(
+          "stripe-create-checkout",
+          { body: { tier, whiteLabel: whiteLabelParam } }
+        );
+
+        if (checkoutError || (checkoutData as any)?.error) {
+          // Account is provisioned even if checkout failed — let them
+          // resume billing from inside the app.
+          toast.error("Account created, but we couldn't start checkout. Open Settings → Billing to continue.");
+          navigate("/settings?tab=billing");
+          return;
+        }
+
+        const url = (checkoutData as { url?: string } | null)?.url;
+        if (!url) {
+          toast.error("Checkout session missing redirect URL.");
+          navigate("/settings?tab=billing");
+          return;
+        }
+        window.location.href = url;
       }
     } catch (err: any) {
       toast.error(err.message || "Signup failed");
@@ -195,7 +213,13 @@ const Signup = () => {
           <CardDescription>
             {isInviteFlow
               ? `You've been invited to join as ${invite.invitee_email}`
-              : "Start tracking commissions in minutes"}
+              : (
+                <>
+                  Continue to checkout for the{" "}
+                  <span className="font-medium text-foreground">{TIER_LABEL[tier]}</span>
+                  {whiteLabelParam ? " plus White-Label add-on" : ""} plan.
+                </>
+              )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -241,7 +265,11 @@ const Signup = () => {
               </div>
             )}
             <Button className="w-full" type="submit" disabled={loading}>
-              {loading ? "Creating account..." : isInviteFlow ? "Join Team" : "Create Account"}
+              {loading
+                ? "Creating account..."
+                : isInviteFlow
+                  ? "Join Team"
+                  : "Continue to checkout"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{" "}
