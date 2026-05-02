@@ -129,6 +129,9 @@ function WebhooksSection() {
                 <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="deal.posted">deal.posted</SelectItem>
+                  <SelectItem value="policy.submitted">policy.submitted</SelectItem>
+                  <SelectItem value="policy.issued">policy.issued</SelectItem>
+                  <SelectItem value="policy.issue_paid">policy.issue_paid</SelectItem>
                 </SelectContent>
               </Select>
             </div>

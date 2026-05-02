@@ -267,6 +267,44 @@ export function PostDealModal({ open, onOpenChange, editingPolicy }: PostDealMod
           await calculateAndSavePayouts(savedPolicy.id, supabase);
         } catch {}
 
+        // policy.submitted fires when a policy enters the Submitted
+        // bucket — either a brand-new policy created as Submitted or
+        // an edit that transitioned it from Draft / Pending into
+        // Submitted. Per Wiki/webhooks-and-culture-tools.md the Draft
+        // state itself fires nothing.
+        const previousStatus = editingPolicy?.status ?? null;
+        const becameSubmitted = (status as string) === "Submitted" && previousStatus !== "Submitted";
+        if (becameSubmitted) {
+          const { data: submittedHooks } = await supabase
+            .from("webhook_configs")
+            .select("webhook_url")
+            .eq("tenant_id", currentAgent.tenant_id)
+            .eq("is_active", true)
+            .eq("event_type", "policy.submitted" as any);
+
+          const agent = agents?.find((a) => a.id === resolvedAgentId);
+          for (const config of (submittedHooks ?? []) as Array<{ webhook_url: string }>) {
+            try {
+              await supabase.functions.invoke("fire-webhook", {
+                body: {
+                  webhook_url: config.webhook_url,
+                  payload: {
+                    event: "policy.submitted",
+                    policy_number: policyNumber.trim(),
+                    client_name: clientName.trim(),
+                    carrier: carrier.trim(),
+                    product: product.trim(),
+                    annual_premium: parseFloat(annualPremium),
+                    agent_email: agent?.email || "",
+                    application_date: applicationDate,
+                    status,
+                  },
+                },
+              });
+            } catch {}
+          }
+        }
+
         // Webhook fire on creation in a Booked or Realized state per
         // Wiki/webhooks-and-culture-tools.md.
         //   policy.issued     fires when the new policy is created in Issued.

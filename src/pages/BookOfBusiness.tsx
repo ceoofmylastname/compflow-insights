@@ -213,6 +213,44 @@ const BookOfBusiness = () => {
       }
     }
 
+    // policy.submitted fires when status enters the Submitted bucket
+    // (e.g. an owner flips a Pending policy back to Submitted, or a
+    // Draft is promoted via this dropdown). Draft state itself never
+    // fires a webhook.
+    const becameSubmitted = newStatus === "Submitted" && policy?.status !== "Submitted";
+    if (policy && becameSubmitted && currentAgent) {
+      try {
+        const { data: submittedHooks } = await supabase
+          .from("webhook_configs")
+          .select("webhook_url")
+          .eq("tenant_id", currentAgent.tenant_id)
+          .eq("is_active", true)
+          .eq("event_type", "policy.submitted" as any);
+
+        if (submittedHooks && submittedHooks.length > 0) {
+          const agent = agents?.find(a => a.id === policy.resolved_agent_id);
+          const payload = {
+            event: "policy.submitted",
+            policy_number: policy.policy_number || "",
+            client_name: policy.client_name || "",
+            carrier: policy.carrier || "",
+            product: policy.product || "",
+            annual_premium: policy.annual_premium || 0,
+            agent_email: agent?.email || "",
+            application_date: policy.application_date || "",
+            status: newStatus,
+          };
+          for (const config of submittedHooks) {
+            await supabase.functions.invoke("fire-webhook", {
+              body: { webhook_url: config.webhook_url, payload },
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fire policy.submitted webhook", e);
+      }
+    }
+
     queryClient.invalidateQueries({ queryKey: ["policies"] });
     queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
     toast.success(`Status updated to ${newStatus}`);

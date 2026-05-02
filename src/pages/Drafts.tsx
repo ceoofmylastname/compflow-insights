@@ -6,6 +6,7 @@ import { SkeletonTable } from "@/components/shared/SkeletonTable";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useDrafts, DraftPolicy } from "@/hooks/useDrafts";
 import { useAgents } from "@/hooks/useAgents";
+import { useCurrentAgent } from "@/hooks/useCurrentAgent";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,6 +40,7 @@ function validateForPromotion(d: DraftPolicy): PromoteValidation {
 const Drafts = () => {
   const { data: drafts, isLoading, error, refetch } = useDrafts();
   const { data: agents } = useAgents();
+  const { data: currentAgent } = useCurrentAgent();
   const queryClient = useQueryClient();
   const [promoting, setPromoting] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<Policy | null>(null);
@@ -66,6 +68,41 @@ const Drafts = () => {
       try {
         await calculateAndSavePayouts(draft.id, supabase);
       } catch {}
+
+      // Fire policy.submitted webhook on the Draft -> Submitted transition.
+      // Per Wiki/webhooks-and-culture-tools.md the Draft state itself fires
+      // nothing; the lifecycle event lands here when the agent promotes.
+      if (currentAgent) {
+        try {
+          const { data: hooks } = await supabase
+            .from("webhook_configs")
+            .select("webhook_url")
+            .eq("tenant_id", currentAgent.tenant_id)
+            .eq("is_active", true)
+            .eq("event_type", "policy.submitted" as any);
+
+          const agent = agents?.find((a) => a.id === draft.resolved_agent_id);
+          for (const config of (hooks ?? []) as Array<{ webhook_url: string }>) {
+            await supabase.functions.invoke("fire-webhook", {
+              body: {
+                webhook_url: config.webhook_url,
+                payload: {
+                  event: "policy.submitted",
+                  policy_number: draft.policy_number || "",
+                  client_name: draft.client_name || "",
+                  carrier: draft.carrier || "",
+                  product: draft.product || "",
+                  annual_premium: draft.annual_premium || 0,
+                  agent_email: agent?.email || "",
+                  application_date: draft.application_date || "",
+                  status: "Submitted",
+                },
+              },
+            });
+          }
+        } catch {}
+      }
+
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.drafts] });
       queryClient.invalidateQueries({ queryKey: ["policies"] });
       queryClient.invalidateQueries({ queryKey: ["commissionPayouts"] });
