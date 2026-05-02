@@ -18,6 +18,11 @@ import { CSVImportModal } from "@/components/shared/CSVImportModal";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
 import { PostDealModal } from "@/components/policies/PostDealModal";
 import { OnboardingBanner } from "@/components/onboarding/OnboardingBanner";
+import { ActionRequiredBanner } from "@/components/home/ActionRequiredBanner";
+import { PromotionDistanceCard } from "@/components/home/PromotionDistanceCard";
+import { LeadershipBroadcastsPanel } from "@/components/home/LeadershipBroadcastsPanel";
+import { HomeLeaderboards } from "@/components/home/HomeLeaderboards";
+import { RecentActivityFeed } from "@/components/home/RecentActivityFeed";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFilters } from "@/contexts/FilterContext";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
@@ -184,6 +189,7 @@ const Dashboard = () => {
     <AppLayout>
       <div className="space-y-6">
         <OnboardingBanner />
+        <ActionRequiredBanner />
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -261,6 +267,18 @@ const Dashboard = () => {
         </div>
 
         <GoalProgress current={totalCommission} goal={annualGoal} loading={loading} />
+
+        {/* Home page core: promotion distance + leadership broadcasts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <PromotionDistanceCard />
+          <LeadershipBroadcastsPanel />
+        </div>
+
+        {/* Home page core: leaderboards + recent activity feed */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <HomeLeaderboards />
+          <RecentActivityFeed />
+        </div>
 
         {/* Chart + Top Producers */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
