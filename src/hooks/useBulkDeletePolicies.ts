@@ -59,7 +59,7 @@ export function useBulkDeletePolicies() {
       });
       if (error) throw error;
 
-      const rows = ((data ?? []) as unknown as BulkDeleteResultRow[]) ?? [];
+      const rows = ((data ?? []) as unknown as BulkDeleteResultRow[]);
       const totalPremium = rows.reduce((s, r) => s + (Number(r.annual_premium_at_deletion) || 0), 0);
       const totalPaidCommission = rows.reduce((s, r) => s + (Number(r.paid_commission_total) || 0), 0);
 

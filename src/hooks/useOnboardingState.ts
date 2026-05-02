@@ -115,7 +115,7 @@ export function useOnboardingProgress(): OnboardingProgress | null {
       const hasCarrier = (carrRes.count ?? 0) > 0;
       const hasInvitedAgent = (invRes.count ?? 0) > 0 || (agentsRes.count ?? 0) > 1;
       const webhookConfigured = (hookRes.count ?? 0) > 0;
-      const markedComplete = !!(stateRes.data as { completed_at: string | null } | null)?.completed_at;
+      const markedComplete = !!(stateRes.data as unknown as { completed_at: string | null } | null)?.completed_at;
 
       // 6 indicators. Webhook is optional (still counts when present).
       const checks = [

@@ -74,7 +74,7 @@ export type Database = {
           created_at: string
           end_date: string | null
           id: string
-          position_id: string
+          position_id: string | null
           start_date: string
           tenant_id: string
           upline_email: string | null
@@ -84,7 +84,7 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
-          position_id: string
+          position_id?: string | null
           start_date: string
           tenant_id: string
           upline_email?: string | null
@@ -94,7 +94,7 @@ export type Database = {
           created_at?: string
           end_date?: string | null
           id?: string
-          position_id?: string
+          position_id?: string | null
           start_date?: string
           tenant_id?: string
           upline_email?: string | null
@@ -131,6 +131,7 @@ export type Database = {
           auth_user_id: string | null
           contract_type: string | null
           created_at: string
+          custom_fields: Json
           email: string
           first_name: string
           id: string
@@ -151,6 +152,7 @@ export type Database = {
           auth_user_id?: string | null
           contract_type?: string | null
           created_at?: string
+          custom_fields?: Json
           email: string
           first_name: string
           id?: string
@@ -171,6 +173,7 @@ export type Database = {
           auth_user_id?: string | null
           contract_type?: string | null
           created_at?: string
+          custom_fields?: Json
           email?: string
           first_name?: string
           id?: string
@@ -317,6 +320,7 @@ export type Database = {
           custom_fields: Json
           header_fingerprint: string[] | null
           id: string
+          status_value_map: Json
           tenant_id: string
           updated_at: string
         }
@@ -327,6 +331,7 @@ export type Database = {
           custom_fields?: Json
           header_fingerprint?: string[] | null
           id?: string
+          status_value_map?: Json
           tenant_id: string
           updated_at?: string
         }
@@ -337,6 +342,7 @@ export type Database = {
           custom_fields?: Json
           header_fingerprint?: string[] | null
           id?: string
+          status_value_map?: Json
           tenant_id?: string
           updated_at?: string
         }
@@ -401,6 +407,7 @@ export type Database = {
         Row: {
           carrier: string
           created_at: string
+          custom_fields: Json
           id: string
           position_id: string
           product: string
@@ -411,6 +418,7 @@ export type Database = {
         Insert: {
           carrier: string
           created_at?: string
+          custom_fields?: Json
           id?: string
           position_id: string
           product: string
@@ -421,6 +429,7 @@ export type Database = {
         Update: {
           carrier?: string
           created_at?: string
+          custom_fields?: Json
           id?: string
           position_id?: string
           product?: string
@@ -453,6 +462,8 @@ export type Database = {
           commission_rate: number | null
           contract_type: string | null
           id: string
+          paid_at: string | null
+          payment_status: string
           payout_type: string
           policy_id: string
           tenant_id: string
@@ -464,6 +475,8 @@ export type Database = {
           commission_rate?: number | null
           contract_type?: string | null
           id?: string
+          paid_at?: string | null
+          payment_status?: string
           payout_type?: string
           policy_id: string
           tenant_id: string
@@ -475,6 +488,8 @@ export type Database = {
           commission_rate?: number | null
           contract_type?: string | null
           id?: string
+          paid_at?: string | null
+          payment_status?: string
           payout_type?: string
           policy_id?: string
           tenant_id?: string
@@ -598,6 +613,69 @@ export type Database = {
           },
           {
             foreignKeyName: "invites_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leadership_broadcasts: {
+        Row: {
+          body: string | null
+          created_at: string
+          created_by_user_id: string
+          cta_text: string | null
+          cta_url: string | null
+          end_at: string | null
+          id: string
+          image_url: string | null
+          is_active: boolean
+          start_at: string
+          targeting: Json
+          tenant_id: string
+          title: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          created_by_user_id: string
+          cta_text?: string | null
+          cta_url?: string | null
+          end_at?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          start_at?: string
+          targeting?: Json
+          tenant_id: string
+          title: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          created_by_user_id?: string
+          cta_text?: string | null
+          cta_url?: string | null
+          end_at?: string | null
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          start_at?: string
+          targeting?: Json
+          tenant_id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leadership_broadcasts_created_by_user_id_fkey"
+            columns: ["created_by_user_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leadership_broadcasts_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -791,6 +869,110 @@ export type Database = {
           },
         ]
       }
+      policy_deletions_audit: {
+        Row: {
+          agent_id: string | null
+          annual_premium_at_deletion: number | null
+          carrier_id: string | null
+          client_name: string | null
+          deleted_at: string
+          deleted_by_user_id: string
+          id: string
+          paid_commission_total_at_deletion: number
+          policy_id: string
+          policy_number: string | null
+          reason: string | null
+          status_at_deletion: string | null
+          tenant_id: string
+        }
+        Insert: {
+          agent_id?: string | null
+          annual_premium_at_deletion?: number | null
+          carrier_id?: string | null
+          client_name?: string | null
+          deleted_at?: string
+          deleted_by_user_id: string
+          id?: string
+          paid_commission_total_at_deletion?: number
+          policy_id: string
+          policy_number?: string | null
+          reason?: string | null
+          status_at_deletion?: string | null
+          tenant_id: string
+        }
+        Update: {
+          agent_id?: string | null
+          annual_premium_at_deletion?: number | null
+          carrier_id?: string | null
+          client_name?: string | null
+          deleted_at?: string
+          deleted_by_user_id?: string
+          id?: string
+          paid_commission_total_at_deletion?: number
+          policy_id?: string
+          policy_number?: string | null
+          reason?: string | null
+          status_at_deletion?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policy_deletions_audit_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      policy_status_history: {
+        Row: {
+          changed_at: string
+          changed_by: string | null
+          from_status: string | null
+          id: string
+          policy_id: string
+          source: string
+          tenant_id: string
+          to_status: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by?: string | null
+          from_status?: string | null
+          id?: string
+          policy_id: string
+          source?: string
+          tenant_id: string
+          to_status: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string | null
+          from_status?: string | null
+          id?: string
+          policy_id?: string
+          source?: string
+          tenant_id?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "policy_status_history_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "policy_status_history_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       positions: {
         Row: {
           created_at: string
@@ -823,12 +1005,148 @@ export type Database = {
           },
         ]
       }
+      promotion_targets: {
+        Row: {
+          created_at: string
+          criteria: Json
+          from_position_id: string
+          id: string
+          tenant_id: string
+          to_position_id: string
+        }
+        Insert: {
+          created_at?: string
+          criteria?: Json
+          from_position_id: string
+          id?: string
+          tenant_id: string
+          to_position_id: string
+        }
+        Update: {
+          created_at?: string
+          criteria?: Json
+          from_position_id?: string
+          id?: string
+          tenant_id?: string
+          to_position_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "promotion_targets_from_position_id_fkey"
+            columns: ["from_position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_targets_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "promotion_targets_to_position_id_fkey"
+            columns: ["to_position_id"]
+            isOneToOne: false
+            referencedRelation: "positions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_custom_fields: {
+        Row: {
+          applies_to: string
+          created_at: string
+          created_by: string | null
+          data_type: string
+          field_key: string
+          field_label: string
+          id: string
+          required: boolean
+          tenant_id: string
+          updated_at: string
+          visible_in_dashboard: boolean
+        }
+        Insert: {
+          applies_to: string
+          created_at?: string
+          created_by?: string | null
+          data_type: string
+          field_key: string
+          field_label: string
+          id?: string
+          required?: boolean
+          tenant_id: string
+          updated_at?: string
+          visible_in_dashboard?: boolean
+        }
+        Update: {
+          applies_to?: string
+          created_at?: string
+          created_by?: string | null
+          data_type?: string
+          field_key?: string
+          field_label?: string
+          id?: string
+          required?: boolean
+          tenant_id?: string
+          updated_at?: string
+          visible_in_dashboard?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_custom_fields_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tenant_onboarding_state: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          payload: Json
+          step_completed: number
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          payload?: Json
+          step_completed?: number
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          payload?: Json
+          step_completed?: number
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_onboarding_state_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tenants: {
         Row: {
           agency_name: string | null
           cloudflare_hostname_id: string | null
           created_at: string
           custom_domain: string | null
+          default_annual_goal: number | null
+          default_currency: string
           domain_status: string
           domain_txt_verification: string | null
           domain_verified: boolean
@@ -838,12 +1156,15 @@ export type Database = {
           plan: string | null
           primary_color: string | null
           subdomain: string | null
+          time_zone: string | null
         }
         Insert: {
           agency_name?: string | null
           cloudflare_hostname_id?: string | null
           created_at?: string
           custom_domain?: string | null
+          default_annual_goal?: number | null
+          default_currency?: string
           domain_status?: string
           domain_txt_verification?: string | null
           domain_verified?: boolean
@@ -853,12 +1174,15 @@ export type Database = {
           plan?: string | null
           primary_color?: string | null
           subdomain?: string | null
+          time_zone?: string | null
         }
         Update: {
           agency_name?: string | null
           cloudflare_hostname_id?: string | null
           created_at?: string
           custom_domain?: string | null
+          default_annual_goal?: number | null
+          default_currency?: string
           domain_status?: string
           domain_txt_verification?: string | null
           domain_verified?: boolean
@@ -868,8 +1192,72 @@ export type Database = {
           plan?: string | null
           primary_color?: string | null
           subdomain?: string | null
+          time_zone?: string | null
         }
         Relationships: []
+      }
+      user_action_items: {
+        Row: {
+          action_type: string
+          auto_resolve_condition: string | null
+          body: string | null
+          created_at: string
+          cta_text: string | null
+          cta_url: string | null
+          dismissed_at: string | null
+          id: string
+          is_dismissible: boolean
+          resolved_at: string | null
+          tenant_id: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          auto_resolve_condition?: string | null
+          body?: string | null
+          created_at?: string
+          cta_text?: string | null
+          cta_url?: string | null
+          dismissed_at?: string | null
+          id?: string
+          is_dismissible?: boolean
+          resolved_at?: string | null
+          tenant_id: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          auto_resolve_condition?: string | null
+          body?: string | null
+          created_at?: string
+          cta_text?: string | null
+          cta_url?: string | null
+          dismissed_at?: string | null
+          id?: string
+          is_dismissible?: boolean
+          resolved_at?: string | null
+          tenant_id?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_action_items_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_action_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -962,6 +1350,17 @@ export type Database = {
       }
     }
     Functions: {
+      bulk_delete_policies: {
+        Args: { policy_ids: string[]; reason?: string }
+        Returns: {
+          agent_id: string
+          annual_premium_at_deletion: number
+          audit_id: string
+          deleted_policy_id: string
+          paid_commission_total: number
+          status_at_deletion: string
+        }[]
+      }
       claim_agent_record: {
         Args: {
           p_agent_email: string
@@ -996,6 +1395,10 @@ export type Database = {
         Returns: boolean
       }
       is_tenant_owner: { Args: { _user_id: string }; Returns: boolean }
+      reassign_agent_upline: {
+        Args: { p_agent_id: string; p_new_upline_email: string }
+        Returns: undefined
+      }
       resolve_tenant_by_domain: {
         Args: { p_hostname: string }
         Returns: {
@@ -1011,6 +1414,14 @@ export type Database = {
         }[]
       }
       snapshot_active_agents: { Args: { p_tenant_id: string }; Returns: number }
+      update_carrier_status_mapping: {
+        Args: {
+          p_canonical_value: string
+          p_carrier_name: string
+          p_raw_value: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
