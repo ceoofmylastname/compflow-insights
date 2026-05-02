@@ -92,6 +92,7 @@ interface PolicyImportWizardProps {
 
 interface AgentResolutionRow {
   writingAgentId: string;
+  agentEmail: string | null;
   carrier: string;
   resolvedAgentId: string | null;
   method: string | null;
@@ -195,6 +196,14 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
   /* Step 4b: Import mode */
   const [importMode, setImportMode] = useState<"replace" | "additive">("replace");
 
+  /* Post-import "new writing numbers detected" panel state. Tracks the
+     batch insert of agent_contracts rows for writing numbers that were
+     resolved via email fallback (i.e. not yet in agent_contracts for
+     that carrier). 'idle' = panel visible, 'saving' = inserting,
+     'done' = panel hidden because user chose Add or Skip. */
+  const [newContractsState, setNewContractsState] = useState<"idle" | "saving" | "done">("idle");
+  const [selectedNewWais, setSelectedNewWais] = useState<Set<string>>(new Set());
+
   /* Step 5: Import */
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -220,6 +229,8 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
     setImporting(false);
     setImportProgress(0);
     setImportResult(null);
+    setNewContractsState("idle");
+    setSelectedNewWais(new Set());
   }, []);
 
   /**
@@ -439,14 +450,32 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       carrierNameMap.set(c.name.toLowerCase(), c.name);
     }
 
-    // Build all mapped rows first to extract unique writing_agent_ids
-    const uniqueAgents = new Map<string, string>(); // writingAgentId -> carrier
+    // Build resolution inputs per CSV row, then dedupe by
+    // (writingAgentId | "email:<email>") so each unique resolution
+    // target gets exactly one async lookup. A row with no
+    // writing_agent_id but a populated agent_email is keyed under
+    // "email:<email>" so the email-only fallback path resolves once.
+    type ResolveInput = {
+      writingAgentId: string;
+      agentEmail: string | null;
+      carrier: string;
+    };
+    const uniqueInputs = new Map<string, ResolveInput>();
     for (const row of rows) {
       const { mapped } = applyColumnMapping(headers, row, columnMappings, activeCustomFields);
-      const wai = mapped.writing_agent_id?.trim();
-      const car = mapped.carrier?.trim() || carrierName;
-      if (wai && !uniqueAgents.has(wai)) {
-        uniqueAgents.set(wai, car);
+      const wai = mapped.writing_agent_id?.trim() ?? "";
+      const email = mapped.agent_email?.trim().toLowerCase() ?? "";
+      const carrier = mapped.carrier?.trim() || carrierName;
+      if (!wai && !email) continue;
+      // Key on writing_agent_id when present; otherwise on the email
+      // for email-only rows.
+      const key = wai || `email:${email}`;
+      if (!uniqueInputs.has(key)) {
+        uniqueInputs.set(key, {
+          writingAgentId: wai,
+          agentEmail: email || null,
+          carrier,
+        });
       }
     }
 
@@ -457,12 +486,13 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       ? null
       : computeDownlineAgentIds(currentAgent.email, agents ?? []);
 
-    // Resolve each unique agent
+    // Resolve each unique input
     const resolutions: AgentResolutionRow[] = [];
-    for (const [writingAgentId, carrier] of uniqueAgents) {
+    for (const input of uniqueInputs.values()) {
       const result = await resolveAgent(
-        writingAgentId,
-        carrier,
+        input.writingAgentId,
+        input.agentEmail,
+        input.carrier,
         currentAgent.tenant_id,
         supabase,
         carrierNameMap
@@ -472,8 +502,9 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         result.agentId != null &&
         !downlineIds.has(result.agentId);
       resolutions.push({
-        writingAgentId,
-        carrier,
+        writingAgentId: input.writingAgentId,
+        agentEmail: input.agentEmail,
+        carrier: input.carrier,
         resolvedAgentId: result.agentId,
         method: result.method,
         manualAgentId: "",
@@ -491,13 +522,18 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
   /* ---------- Step 3 -> 4: Validate ---------- */
   const proceedToValidation = useCallback(() => {
     // Build resolution lookup, including any unresolved conflict signal.
+    // Per the new canonical rule (writing-number-first, email-fallback,
+    // no auto-assign on conflict), conflicts return agentId=null and the
+    // owner picks via the override dropdown — so the warning here is
+    // softer than before.
     type ResolutionMapEntry = {
       agentId: string | null;
       method: string | null;
       reasons: string[];
       warning?: string;
     };
-    const resolutionMap = new Map<string, ResolutionMapEntry>();
+    const byWai = new Map<string, ResolutionMapEntry>();
+    const byEmail = new Map<string, ResolutionMapEntry>();
     for (const r of agentResolutions) {
       const agentId = r.manualAgentId || r.resolvedAgentId;
       const method = r.manualAgentId ? "manual" : r.method;
@@ -507,9 +543,15 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       if (r.conflict && !r.manualAgentId) {
         reasons.push("agent_conflict");
         warning =
-          "Email and writing-number lookups returned different agents. Defaulted to email match; please verify.";
+          "Writing number and email pointed to different agents. Pick one via the override dropdown.";
       }
-      resolutionMap.set(r.writingAgentId, { agentId, method, reasons, warning });
+      const entry = { agentId, method, reasons, warning };
+      if (r.writingAgentId) {
+        byWai.set(r.writingAgentId, entry);
+      }
+      if (r.agentEmail) {
+        byEmail.set(r.agentEmail.toLowerCase(), entry);
+      }
     }
 
     const activeCustomFields = [
@@ -533,13 +575,20 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
 
       const { errors, warnings } = validateImportRow(mapped, effectiveStatusMap);
 
-      // Resolve agent from our pre-built map; surface conflict warnings.
+      // Resolve agent: writing_agent_id first (the canonical key), email
+      // fallback when wai is missing or unresolved.
       const wai = mapped.writing_agent_id?.trim();
+      const email = mapped.agent_email?.trim().toLowerCase();
       let resolvedAgentId: string | null = null;
       let resolutionMethod: string | null = null;
       const needsReviewReasons: string[] = [];
-      if (wai && resolutionMap.has(wai)) {
-        const res = resolutionMap.get(wai)!;
+      let res: ResolutionMapEntry | undefined;
+      if (wai && byWai.has(wai)) {
+        res = byWai.get(wai);
+      } else if (email && byEmail.has(email)) {
+        res = byEmail.get(email);
+      }
+      if (res) {
         resolvedAgentId = res.agentId;
         resolutionMethod = res.method;
         if (res.warning) warnings.push(res.warning);
@@ -981,6 +1030,94 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
     ]);
     downloadCSV("import-report.csv", rowsToCSV(reportHeaders, reportRows));
   }, [importRows]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Post-import: "new writing numbers detected" panel                */
+  /*                                                                   */
+  /*  Surfaces writing numbers that resolved to existing agents via    */
+  /*  the email-fallback path during this import (i.e. the writing    */
+  /*  number wasn't in agent_contracts for that carrier yet). Lets    */
+  /*  the owner one-click add them to contracts so future statements   */
+  /*  resolve via writing-number directly. Per Wiki/carrier-ingest-    */
+  /*  pipeline.md (2026-05-02) writing-number is the canonical key —   */
+  /*  email is fallback only.                                          */
+  /* ---------------------------------------------------------------- */
+  const newContractsCandidates = useMemo(() => {
+    return agentResolutions
+      .filter(
+        (r) =>
+          !!r.writingAgentId &&
+          r.method === "email" &&
+          !!r.resolvedAgentId &&
+          !r.manualAgentId
+      )
+      .map((r) => ({
+        writingAgentId: r.writingAgentId,
+        carrier: r.carrier,
+        resolvedAgentId: r.resolvedAgentId as string,
+      }));
+  }, [agentResolutions]);
+
+  const candidatesByAgent = useMemo(() => {
+    const out = new Map<string, { name: string; entries: typeof newContractsCandidates }>();
+    for (const c of newContractsCandidates) {
+      const a = agents?.find((x) => x.id === c.resolvedAgentId);
+      const name = a ? `${a.first_name} ${a.last_name}`.trim() : "Unknown";
+      if (!out.has(c.resolvedAgentId)) out.set(c.resolvedAgentId, { name, entries: [] });
+      out.get(c.resolvedAgentId)!.entries.push(c);
+    }
+    return out;
+  }, [newContractsCandidates, agents]);
+
+  // Default-select every candidate the moment the panel becomes visible.
+  // Owner can untick before clicking Add.
+  const ensureDefaultSelection = () => {
+    if (newContractsState !== "idle") return;
+    if (selectedNewWais.size > 0) return;
+    if (newContractsCandidates.length === 0) return;
+    setSelectedNewWais(new Set(newContractsCandidates.map((c) => c.writingAgentId)));
+  };
+  if (importResult && newContractsCandidates.length > 0) {
+    ensureDefaultSelection();
+  }
+
+  const handleAddNewContracts = useCallback(async () => {
+    if (!currentAgent) return;
+    if (selectedNewWais.size === 0) {
+      setNewContractsState("done");
+      return;
+    }
+    setNewContractsState("saving");
+    const rowsToInsert = newContractsCandidates
+      .filter((c) => selectedNewWais.has(c.writingAgentId))
+      .map((c) => ({
+        tenant_id: currentAgent.tenant_id,
+        agent_id: c.resolvedAgentId,
+        carrier: c.carrier,
+        agent_number: c.writingAgentId,
+        contract_type: "Direct Pay",
+        status: "Active",
+      }));
+    if (rowsToInsert.length === 0) {
+      setNewContractsState("done");
+      return;
+    }
+    const { error } = await supabase.from("agent_contracts").insert(rowsToInsert as any);
+    if (error) {
+      toast.error(`Could not add ${rowsToInsert.length} contracts: ${error.message}`);
+      setNewContractsState("idle");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["agentContracts"] });
+    toast.success(
+      `${rowsToInsert.length} writing number(s) added to contracts. Future imports will resolve directly.`
+    );
+    setNewContractsState("done");
+  }, [currentAgent, newContractsCandidates, selectedNewWais, queryClient]);
+
+  const handleSkipNewContracts = useCallback(() => {
+    setNewContractsState("done");
+  }, []);
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
@@ -1652,6 +1789,70 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   <p className="text-xs text-muted-foreground text-center">
                     {importResult.aliasesSaved} carrier alias(es) saved for future imports
                   </p>
+                )}
+
+                {/* Post-import: new writing numbers detected (email-fallback resolutions). */}
+                {newContractsState !== "done" && newContractsCandidates.length > 0 && (
+                  <div className="rounded-md border border-primary/40 bg-primary/5 p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {newContractsCandidates.length} new writing number(s) resolved via email match
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Add them to the agents' contracts so future statements resolve by writing number directly.
+                      </p>
+                    </div>
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {Array.from(candidatesByAgent.entries()).map(([agentId, group]) => (
+                        <div key={agentId} className="rounded border border-border bg-background p-2">
+                          <p className="text-xs font-semibold text-foreground mb-1.5">
+                            {group.name}
+                          </p>
+                          <div className="space-y-1">
+                            {group.entries.map((entry) => (
+                              <label
+                                key={entry.writingAgentId}
+                                className="flex items-center gap-2 text-xs cursor-pointer"
+                              >
+                                <Checkbox
+                                  checked={selectedNewWais.has(entry.writingAgentId)}
+                                  onCheckedChange={(v) => {
+                                    setSelectedNewWais((prev) => {
+                                      const next = new Set(prev);
+                                      if (v === true) next.add(entry.writingAgentId);
+                                      else next.delete(entry.writingAgentId);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                <span className="font-mono text-foreground">{entry.writingAgentId}</span>
+                                <span className="text-muted-foreground">— {entry.carrier}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSkipNewContracts}
+                        disabled={newContractsState === "saving"}
+                      >
+                        Skip
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleAddNewContracts}
+                        disabled={newContractsState === "saving" || selectedNewWais.size === 0}
+                      >
+                        {newContractsState === "saving"
+                          ? "Adding..."
+                          : `Add ${selectedNewWais.size} to contracts`}
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
                 <div className="flex items-center justify-center gap-2">

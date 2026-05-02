@@ -71,6 +71,7 @@ export const SYSTEM_FIELDS = [
   "policy_number",
   "application_date",
   "writing_agent_id",
+  "agent_email",
   "client_name",
   "client_phone",
   "client_dob",
@@ -187,97 +188,123 @@ export function normalizeCarrierName(
 /* ------------------------------------------------------------------ */
 
 /**
- * Resolve a writing_agent_id string to an actual agent UUID.
+ * Resolve a CSV row's writing_agent_id (and optional agent_email) to an
+ * actual agent UUID.
  *
- * Resolution order (per project CLAUDE.md):
- *  1. Manual alias on `carrier_agent_aliases` — if a human has explicitly
- *     mapped this carrier+writing_agent_id to an agent, that wins outright.
- *  2. Email AND writing-number (carrier-scoped agent_contracts.agent_number)
- *     are looked up in parallel. If both hit the SAME agent → assign. If
- *     both hit DIFFERENT agents → flag a conflict for manual review (the
- *     spec is "email first, writing number second" — so the conflict.assignment
- *     defaults to the email match, but the row gets needs_review).
- *  3. NPN fallback — only consulted if neither email nor writing number
- *     matched. Some carrier feeds put the NPN in the writing_agent_id column.
+ * Canonical priority per Wiki/carrier-ingest-pipeline.md (updated
+ * 2026-05-02): writing-number-first, email-fallback. Email is the
+ * fallback only — never the primary key.
+ *
+ *   1. Manual alias on `carrier_agent_aliases` — explicit human override
+ *      wins outright. method: 'alias'.
+ *   2. Writing-number match on agent_contracts (tenant + carrier +
+ *      agent_number). method: 'contract'.
+ *   3. Email fallback in agents (tenant + email). Used when the writing
+ *      number is missing OR did not match any agent's contracts.
+ *      method: 'email'.
+ *   4. Conflict — writing number resolved to one agent, email resolved
+ *      to a DIFFERENT agent. Returns agentId: null, method: null,
+ *      conflict: {...}. The wizard surfaces this for manual override;
+ *      no auto-assign.
+ *   5. NPN last-resort — some carrier feeds put the NPN in the
+ *      writing_agent_id column. Only consulted when neither writing
+ *      number nor email matched. method: 'npn'.
  */
 export async function resolveAgent(
   writingAgentId: string,
+  agentEmail: string | null,
   carrier: string,
   tenantId: string,
   supabaseClient: SupabaseClient,
   carrierNameMap?: Map<string, string>
 ): Promise<AgentResolutionResult> {
-  if (!writingAgentId.trim()) return { agentId: null, method: null };
+  const wai = writingAgentId.trim();
+  const email = agentEmail?.trim().toLowerCase() ?? "";
 
-  const val = writingAgentId.trim();
+  // Nothing to resolve at all.
+  if (!wai && !email) return { agentId: null, method: null };
+
   const normalizedCarrier = carrierNameMap
     ? normalizeCarrierName(carrier, carrierNameMap)
     : carrier;
 
-  // 1. Manual alias — explicit human override wins
-  const { data: alias } = await supabaseClient
-    .from("carrier_agent_aliases")
-    .select("agent_id")
-    .eq("tenant_id", tenantId)
-    .eq("carrier", normalizedCarrier)
-    .eq("writing_agent_id", val)
-    .maybeSingle();
-
-  if (alias?.agent_id) {
-    return { agentId: alias.agent_id, method: "alias" };
-  }
-
-  // 2. Email + writing-number in parallel — conflict detection
-  const [emailRes, contractRes] = await Promise.all([
-    supabaseClient
-      .from("agents")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("email", val)
-      .maybeSingle(),
-    supabaseClient
-      .from("agent_contracts")
+  // 1. Manual alias — explicit human override wins. Only meaningful
+  //    when a writing_agent_id is present.
+  if (wai) {
+    const { data: alias } = await supabaseClient
+      .from("carrier_agent_aliases")
       .select("agent_id")
       .eq("tenant_id", tenantId)
       .eq("carrier", normalizedCarrier)
-      .eq("agent_number", val)
-      .maybeSingle(),
+      .eq("writing_agent_id", wai)
+      .maybeSingle();
+    if (alias?.agent_id) {
+      return { agentId: alias.agent_id, method: "alias" };
+    }
+  }
+
+  // 2 + 3. Look up writing_number AND email in parallel. Compare results
+  // afterward to decide which path resolved cleanly.
+  const [contractRes, emailRes] = await Promise.all([
+    wai
+      ? supabaseClient
+          .from("agent_contracts")
+          .select("agent_id")
+          .eq("tenant_id", tenantId)
+          .eq("carrier", normalizedCarrier)
+          .eq("agent_number", wai)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { agent_id: string } | null }),
+    email
+      ? supabaseClient
+          .from("agents")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .eq("email", email)
+          .maybeSingle()
+      : Promise.resolve({ data: null as { id: string } | null }),
   ]);
 
+  const contractAgentId = contractRes.data?.agent_id ?? null;
   const emailAgentId = emailRes.data?.id ?? null;
-  const writingNumberAgentId = contractRes.data?.agent_id ?? null;
 
-  if (emailAgentId && writingNumberAgentId) {
-    if (emailAgentId === writingNumberAgentId) {
-      return { agentId: emailAgentId, method: "email" };
-    }
-    // Both resolved but to different agents — flag conflict.
-    // Default assignment: email per spec primacy. Row will be marked
-    // needs_review by the wizard.
+  // Conflict: both matched but disagree. No auto-assign per the new
+  // canonical rule — the wizard renders the override picker so the
+  // owner resolves it manually.
+  if (contractAgentId && emailAgentId && contractAgentId !== emailAgentId) {
     return {
-      agentId: emailAgentId,
-      method: "email",
-      conflict: { emailAgentId, writingNumberAgentId },
+      agentId: null,
+      method: null,
+      conflict: {
+        writingNumberAgentId: contractAgentId,
+        emailAgentId,
+      },
     };
   }
+
+  // Both matched and agree, OR only writing-number matched — writing
+  // number wins (the canonical key).
+  if (contractAgentId) {
+    return { agentId: contractAgentId, method: "contract" };
+  }
+
+  // Only email matched — email-fallback path.
   if (emailAgentId) {
     return { agentId: emailAgentId, method: "email" };
   }
-  if (writingNumberAgentId) {
-    return { agentId: writingNumberAgentId, method: "contract" };
-  }
 
-  // 3. NPN fallback — last resort, used by carrier feeds that put NPN
-  //    in the writing_agent_id column.
-  const { data: byNpn } = await supabaseClient
-    .from("agents")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("npn", val)
-    .maybeSingle();
-
-  if (byNpn?.id) {
-    return { agentId: byNpn.id, method: "npn" };
+  // 5. NPN last-resort. Only fires when both writing-number and email
+  //    missed (or both were absent on the row).
+  if (wai) {
+    const { data: byNpn } = await supabaseClient
+      .from("agents")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("npn", wai)
+      .maybeSingle();
+    if (byNpn?.id) {
+      return { agentId: byNpn.id, method: "npn" };
+    }
   }
 
   return { agentId: null, method: null };
@@ -408,9 +435,12 @@ export async function buildImportRows(
     let resolvedAgentId: string | null = null;
     let resolutionMethod: string | null = null;
 
-    if (mapped.writing_agent_id?.trim() && mapped.carrier?.trim()) {
+    // Per Wiki/carrier-ingest-pipeline.md (2026-05-02): writing-number
+    // first, email fallback. Resolve when either column has data.
+    if (mapped.carrier?.trim() && (mapped.writing_agent_id?.trim() || mapped.agent_email?.trim())) {
       const result = await resolveAgent(
-        mapped.writing_agent_id,
+        mapped.writing_agent_id ?? "",
+        mapped.agent_email ?? null,
         mapped.carrier,
         tenantId,
         supabaseClient,
