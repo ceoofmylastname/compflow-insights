@@ -80,7 +80,10 @@ const PricingSection = () => {
             No setup fee. 14-day free trial on all self-serve plans.
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Optional white-label add-on: <span className="font-medium text-foreground">$97/mo</span> (Growth, Pro, Enterprise).
+            Optional white-label add-on: <span className="font-medium text-foreground">$97/mo</span> (Growth, Pro, Enterprise).{" "}
+            <a href="#white-label" className="text-primary underline underline-offset-2 hover:opacity-80">
+              Learn more
+            </a>
           </p>
         </div>
 

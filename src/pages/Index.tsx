@@ -7,6 +7,7 @@ import FeaturesSection from "@/components/landing/FeaturesSection";
 import HowItWorksSection from "@/components/landing/HowItWorksSection";
 import StatsSection from "@/components/landing/StatsSection";
 import PricingSection from "@/components/landing/PricingSection";
+import WhiteLabelSection from "@/components/landing/WhiteLabelSection";
 import Footer from "@/components/landing/Footer";
 
 const Index = () => {
@@ -56,6 +57,7 @@ const Index = () => {
       <HowItWorksSection />
       <StatsSection />
       <PricingSection />
+      <WhiteLabelSection />
       <Footer />
     </div>
   );

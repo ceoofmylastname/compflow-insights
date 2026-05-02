@@ -26,6 +26,9 @@ const Navbar = () => {
           <button onClick={() => scrollToSection("pricing")} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
             Pricing
           </button>
+          <button onClick={() => scrollToSection("white-label")} className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+            White-Label
+          </button>
         </nav>
 
         <div className="flex items-center gap-2">
