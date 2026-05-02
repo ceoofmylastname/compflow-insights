@@ -558,6 +558,29 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       });
     }
 
+    // In-CSV duplicate policy_number detection. Surface as a warning on
+    // every row past the first occurrence so the owner sees the issue
+    // before clicking Confirm Import. The current import path (after
+    // the composite-fallback fix) will still collapse genuine duplicates
+    // because the second row's policy_number lookup hits the first row
+    // and updates it; the warning is the user's signal to fix the CSV
+    // or accept last-wins. A future picker (keep first / keep last /
+    // skip) is tracked separately.
+    const policyNumberFirstSeen = new Map<string, number>();
+    for (const row of built) {
+      const pn = row.mapped.policy_number?.trim();
+      if (!pn) continue;
+      if (!policyNumberFirstSeen.has(pn)) {
+        policyNumberFirstSeen.set(pn, row.rowIndex);
+        continue;
+      }
+      const firstAt = policyNumberFirstSeen.get(pn)!;
+      row.warnings.push(
+        `Duplicate policy_number "${pn}" in CSV (first seen at row ${firstAt + 1}). Last row will overwrite earlier rows on import.`
+      );
+      row.needsReviewReasons.push("duplicate_policy_number_in_csv");
+    }
+
     setImportRows(built);
     setStep(3);
   }, [rows, headers, columnMappings, customFields, autoCustomFields, carrierName, agentResolutions, effectiveStatusMap]);
@@ -702,8 +725,21 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
           if (data) existingRow = data as ExistingPolicyRow;
         }
 
-        // Composite fallback when policy_number missing or didn't match.
-        if (!existingRow) {
+        // Composite fallback ONLY when policy_number is genuinely missing
+        // from the CSV. The unique key for a policy is (tenant_id,
+        // policy_number) per Wiki/schema-spec.md; if a row has a
+        // policy_number we trust it as the authoritative identifier.
+        //
+        // Prior bug: this fallback fired any time the policy_number lookup
+        // returned NULL, including for brand-new policy_numbers not yet in
+        // the DB. That collapsed legitimate distinct policies that
+        // happened to share writing_agent_id + client_name + carrier +
+        // application_date — most commonly the "family bundle" case where
+        // one agent writes multiple products (term + IUL + accident) for
+        // the same client on the same date with different policy_numbers.
+        // Each row past the first matched the previously inserted row via
+        // the composite query and silently overwrote it.
+        if (!existingRow && !m.policy_number?.trim()) {
           const wai = m.writing_agent_id?.trim();
           const cli = m.client_name?.trim();
           const car = m.carrier?.trim();
@@ -724,11 +760,9 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
             } else if (matches.length > 1) {
               reviewReasons.push("ambiguous_composite_match");
             } else {
-              // 0 matches via composite — could be a genuinely new policy or
-              // a missing-data case. Per spec, flag for review.
               reviewReasons.push("composite_match_failed");
             }
-          } else if (!m.policy_number?.trim()) {
+          } else {
             // No policy_number AND insufficient composite key fields.
             reviewReasons.push("no_policy_number");
           }
