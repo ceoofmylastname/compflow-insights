@@ -35,6 +35,21 @@ interface RateAdjustment {
   end_date: string | null;
 }
 
+/**
+ * Per-agent rate override per Wiki/comp-grid-engine.md ("Per-agent
+ * rate overrides", 2026-05-02). Resolved BEFORE the position-based
+ * commission_levels lookup. Time-stamped: a row matches when
+ * start_date <= appDate AND (end_date IS NULL OR end_date >= appDate).
+ */
+interface AgentRate {
+  agent_id: string;
+  carrier: string;
+  product: string | null;
+  rate: number;
+  start_date: string;
+  end_date: string | null;
+}
+
 export interface PositionSnapshot {
   position_id: string;
   upline_email: string | null;
@@ -100,6 +115,41 @@ export function getUserUplineAt(
 }
 
 /**
+ * Find a per-agent rate override for (agent_id, carrier, product) active on
+ * appDate. Returns null when no override applies. `rates` must be sorted by
+ * start_date DESC so the most recent applicable row wins on ties (e.g.
+ * setting a new rate today closes the prior row's end_date to today; both
+ * rows would match for today's policy, but the newer row sorts first).
+ *
+ * Per the canonical rule in Wiki/comp-grid-engine.md ("Per-agent rate
+ * overrides", 2026-05-02), this is the authoritative override layer: if a
+ * row exists, it wins outright. Position-based commission_levels are the
+ * fallback when no override applies.
+ */
+function findAgentRate(
+  rates: AgentRate[],
+  agentId: string,
+  carrier: string,
+  product: string,
+  appDate: string
+): number | null {
+  const match = rates.find(
+    (r) =>
+      r.agent_id === agentId &&
+      r.carrier === carrier &&
+      // Product NULL on the override means "any product for this carrier";
+      // a row with a specific product takes precedence (rates are sorted
+      // start_date DESC, so the more-specific row is also more-recent in
+      // practice — owners pick a product when setting; the NULL-product
+      // path is a future bulk-set affordance).
+      (r.product == null || r.product === product) &&
+      r.start_date <= appDate &&
+      (!r.end_date || r.end_date >= appDate)
+  );
+  return match ? match.rate : null;
+}
+
+/**
  * Find the commission rate for a given carrier/product/position_id active on
  * appDate. `levels` must be sorted by start_date DESC. Applies any matching
  * rate adjustment on top of the base rate.
@@ -134,6 +184,30 @@ function findRate(
   if (adj) rate += adj.adjustment_rate;
 
   return rate;
+}
+
+/**
+ * Resolve the effective rate for an agent on a given (carrier, product,
+ * appDate). Agent-first per Wiki/comp-grid-engine.md: if agent_carrier_rates
+ * has an active override, return it. Otherwise fall back to the position-
+ * based commission_levels (with rate adjustments) for the agent's position.
+ *
+ * Returns null only when neither layer resolves — same semantics as the
+ * prior findRate so callers don't need new null-handling logic.
+ */
+function resolveEffectiveRate(
+  agentRates: AgentRate[],
+  levels: CommissionLevel[],
+  adjustments: RateAdjustment[],
+  agentId: string,
+  carrier: string,
+  product: string,
+  positionId: string,
+  appDate: string
+): number | null {
+  const override = findAgentRate(agentRates, agentId, carrier, product, appDate);
+  if (override != null) return override;
+  return findRate(levels, carrier, product, positionId, appDate, adjustments);
 }
 
 /**
@@ -226,6 +300,18 @@ export async function calculateAndSavePayouts(
 
   const adjustments = (adjustmentsRaw ?? []) as RateAdjustment[];
 
+  // 4b. Fetch per-agent rate overrides for the tenant. Agent-first
+  // resolution per Wiki/comp-grid-engine.md ("Per-agent rate
+  // overrides", 2026-05-02). Sorted start_date DESC so the most
+  // recent applicable row wins on ties.
+  const { data: agentRatesRaw } = await supabaseClient
+    .from("agent_carrier_rates" as any)
+    .select("agent_id, carrier, product, rate, start_date, end_date")
+    .eq("tenant_id", tenant_id)
+    .order("start_date", { ascending: false });
+
+  const agentRates = (agentRatesRaw ?? []) as unknown as AgentRate[];
+
   // 5. Resolve writing agent + their position at application_date
   const writingAgent = agentMap.get(resolved_agent_id);
   if (!writingAgent) return;
@@ -234,13 +320,15 @@ export async function calculateAndSavePayouts(
   const writingPos = getUserUplineAt(history, writingAgent.id, application_date);
   if (!writingPos) return;
 
-  const directRate = findRate(
+  const directRate = resolveEffectiveRate(
+    agentRates,
     levels,
+    adjustments,
+    writingAgent.id,
     carrier,
     product,
     writingPos.position_id,
-    application_date,
-    adjustments
+    application_date
   );
   if (directRate == null) return;
 
@@ -294,13 +382,15 @@ export async function calculateAndSavePayouts(
       continue;
     }
 
-    const uplineRate = findRate(
+    const uplineRate = resolveEffectiveRate(
+      agentRates,
       levels,
+      adjustments,
+      upline.id,
       carrier,
       product,
       uplinePos.position_id,
-      application_date,
-      adjustments
+      application_date
     );
     if (uplineRate != null && uplineRate > downlineRate) {
       payouts.push({

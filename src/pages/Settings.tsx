@@ -38,6 +38,7 @@ import { recalculateAllPayouts } from "@/lib/commission-engine";
 import { useTenant, useUpdateTenant } from "@/hooks/useTenant";
 import { useCarriers } from "@/hooks/useCarriers";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
+import { AgentCommissionRatesTab } from "@/components/agents/AgentCommissionRatesTab";
 import { useAgentContracts } from "@/hooks/useAgentContracts";
 import type { AgentContract } from "@/hooks/useAgentContracts";
 
@@ -161,6 +162,7 @@ const Settings = () => {
             <TabsList className="w-max">
               <TabsTrigger value="profile">Profile</TabsTrigger>
               <TabsTrigger value="writing-numbers">My Writing Numbers</TabsTrigger>
+              <TabsTrigger value="my-rates">My Rates</TabsTrigger>
               {isOwner && <TabsTrigger value="agency">Agency</TabsTrigger>}
               {isOwner && <TabsTrigger value="domain">Domain</TabsTrigger>}
               {isOwner && <TabsTrigger value="aliases">Carrier Aliases</TabsTrigger>}
@@ -193,6 +195,25 @@ const Settings = () => {
 
           <TabsContent value="writing-numbers" className="space-y-4 mt-4">
             <WritingNumbersSection agentId={currentAgent?.id} tenantId={currentAgent?.tenant_id} />
+          </TabsContent>
+
+          <TabsContent value="my-rates" className="space-y-4 mt-4">
+            {currentAgent && (
+              <Card>
+                <CardContent className="pt-6">
+                  <AgentCommissionRatesTab
+                    agent={{
+                      id: currentAgent.id,
+                      first_name: currentAgent.first_name ?? "",
+                      last_name: currentAgent.last_name ?? "",
+                      position_id: (currentAgent as any).position_id ?? null,
+                      position: currentAgent.position ?? null,
+                    }}
+                    isOwner={false}
+                  />
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {isOwner && (

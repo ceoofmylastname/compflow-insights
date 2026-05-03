@@ -24,6 +24,7 @@ import { usePositionOptions } from "@/hooks/usePositions";
 import { useCarrierOptions } from "@/hooks/useCarrierOptions";
 import { downloadTemplate } from "@/lib/csv-utils";
 import { InviteAgentModal } from "@/components/agents/InviteAgentModal";
+import { AgentCommissionRatesTab } from "@/components/agents/AgentCommissionRatesTab";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -466,6 +467,7 @@ const AgentRoster = () => {
                   <TabsList className="w-full">
                     <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
                     <TabsTrigger value="contracts" className="flex-1">Contracts</TabsTrigger>
+                    <TabsTrigger value="rates" className="flex-1">Commission Rates</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="details" className="space-y-4 mt-3">
@@ -589,6 +591,19 @@ const AgentRoster = () => {
 
                   <TabsContent value="contracts" className="mt-3">
                     <AgentContractsTab agentId={profileAgent.id} isOwner={isOwner} />
+                  </TabsContent>
+
+                  <TabsContent value="rates" className="mt-3">
+                    <AgentCommissionRatesTab
+                      agent={{
+                        id: profileAgent.id,
+                        first_name: profileAgent.first_name,
+                        last_name: profileAgent.last_name,
+                        position_id: profileAgent.position_id,
+                        position: profileAgent.position,
+                      }}
+                      isOwner={isOwner}
+                    />
                   </TabsContent>
                 </Tabs>
               </div>
