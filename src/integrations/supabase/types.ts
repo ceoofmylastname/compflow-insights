@@ -763,6 +763,7 @@ export type Database = {
       }
       policies: {
         Row: {
+          agent_number: string | null
           annual_premium: number | null
           application_date: string | null
           billing_interval: string | null
@@ -793,6 +794,7 @@ export type Database = {
           writing_agent_id: string | null
         }
         Insert: {
+          agent_number?: string | null
           annual_premium?: number | null
           application_date?: string | null
           billing_interval?: string | null
@@ -823,6 +825,7 @@ export type Database = {
           writing_agent_id?: string | null
         }
         Update: {
+          agent_number?: string | null
           annual_premium?: number | null
           application_date?: string | null
           billing_interval?: string | null
