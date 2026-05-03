@@ -127,6 +127,14 @@ export interface ImportResult {
   aliasesSaved: number;
   /** Subset of `imported` that was written with needs_review = true. */
   flaggedForReview: number;
+  /**
+   * Per-row reason captured every time the import loop did a
+   * `result.skipped++`. Surfaced in the step 4 result UI so silent
+   * skips never happen again. Hotfix added 2026-05-02 after the
+   * orphan PR shipped a regression where every row was being
+   * skipped with no diagnostic surface.
+   */
+  skipReasons: Array<{ rowIndex: number; policyNumber: string | null; reason: string }>;
 }
 
 const STEPS = ["Upload", "Map Columns", "Resolve Agents", "Validate", "Import"] as const;
@@ -728,6 +736,19 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
       skipped: 0,
       aliasesSaved: 0,
       flaggedForReview: 0,
+      skipReasons: [],
+    };
+
+    const recordSkip = (rowIndex: number, policyNumber: string | null, reason: string) => {
+      result.skipped++;
+      result.skipReasons.push({ rowIndex, policyNumber, reason });
+      // Also surface to the browser console so a user can grep on
+      // import-skip without clicking through the result panel.
+      console.error(
+        `[PolicyImportWizard] skip row ${rowIndex + 1}` +
+          (policyNumber ? ` (${policyNumber})` : "") +
+          `: ${reason}`
+      );
     };
 
     // Build a per-writing-agent-id lookup of the manager scope flag so we can
@@ -767,7 +788,11 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
           downlineIdsForImport != null &&
           !downlineIdsForImport.has(resolvedAgentId)
         ) {
-          result.skipped++;
+          recordSkip(
+            row.rowIndex,
+            m.policy_number?.trim() || null,
+            `resolved agent ${resolvedAgentId} is outside the importer's downline`
+          );
           setImportProgress(Math.round(((i + 1) / total) * 100));
           continue;
         }
@@ -940,7 +965,13 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
         }
 
         if (error) {
-          result.skipped++;
+          // Surface the actual Postgres error so silent column-not-found,
+          // RLS rejection, or NOT-NULL violations are visible.
+          recordSkip(
+            row.rowIndex,
+            m.policy_number?.trim() || null,
+            `${existingRow ? "UPDATE" : "INSERT"} failed: ${error.message}`
+          );
           continue;
         }
 
@@ -1004,8 +1035,12 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
             }
           }
         }
-      } catch {
-        result.skipped++;
+      } catch (e: any) {
+        recordSkip(
+          row.rowIndex,
+          row.mapped.policy_number?.trim() || null,
+          `unexpected error: ${e?.message || String(e)}`
+        );
       }
 
       setImportProgress(Math.round(((i + 1) / total) * 100));
@@ -1839,6 +1874,35 @@ export function PolicyImportWizard({ open, onOpenChange, onImportComplete }: Pol
                   <p className="text-xs text-muted-foreground text-center">
                     {importResult.aliasesSaved} carrier alias(es) saved for future imports
                   </p>
+                )}
+
+                {/* Skip diagnostics. Hotfix added after the orphan PR
+                    shipped a regression where every row was being
+                    skipped silently. Now every skip captures a reason
+                    and surfaces it here + in console.error. */}
+                {importResult.skipReasons.length > 0 && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 space-y-2">
+                    <p className="text-sm font-semibold text-destructive">
+                      {importResult.skipReasons.length} row(s) skipped
+                    </p>
+                    <ul className="space-y-1 max-h-48 overflow-y-auto">
+                      {importResult.skipReasons.slice(0, 25).map((s, idx) => (
+                        <li key={`${s.rowIndex}-${idx}`} className="text-xs text-foreground">
+                          <span className="font-mono text-muted-foreground">row {s.rowIndex + 1}</span>
+                          {s.policyNumber && (
+                            <span className="font-mono text-muted-foreground"> · {s.policyNumber}</span>
+                          )}
+                          <span className="text-muted-foreground"> · </span>
+                          <span className="text-destructive">{s.reason}</span>
+                        </li>
+                      ))}
+                      {importResult.skipReasons.length > 25 && (
+                        <li className="text-[10px] text-muted-foreground italic">
+                          + {importResult.skipReasons.length - 25} more (see browser console).
+                        </li>
+                      )}
+                    </ul>
+                  </div>
                 )}
 
                 {/* Post-import: orphan policies — pick agent. */}
